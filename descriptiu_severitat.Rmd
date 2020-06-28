@@ -10,8 +10,13 @@ knitr::opts_chunk$set(echo = TRUE)
 library(compareGroups)
 library(gmodels)
 library(ggmosaic)
-source("grafics.R", encoding = "UTF-8")
 ```
+
+```{r}
+_dir = "helpers"
+source(file.path(_dir, "grafics.R"), encoding = "UTF-8")
+```
+
 
 # Base de dades original
 

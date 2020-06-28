@@ -11,9 +11,17 @@ library(readxl)
 library(dplyr)
 library(missForest)
 library(xray)
-source("helpers.R")
+```
+
+```{r}
+_dir = "helpers"
+source(file.path(_dir, "helpers.R"), encoding = "UTF-8")
+```
+
+```{r}
 set.seed(206)
 ```
+
 
 ```{r}
 # Improt the first "mock" db
