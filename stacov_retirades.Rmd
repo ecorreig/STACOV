@@ -1,0 +1,302 @@
+---
+title: "Models segons la retirada d'estatines"
+author: "Eudald Correig"
+date: "25/6/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+opts_chunk$set(echo = F, warning = F, message = F)
+library(dplyr)
+library(rlang)
+library(gmodels)
+library(glmnet)
+library(cvAUC)
+library(kableExtra)
+library(survival)
+library(survminer)
+require(cmprsk)
+require(ggplot2)
+source("lasso.R", encoding = "UTF-8")
+source("corbes_roc.R", encoding = "UTF-8")
+source("helpers.R", encoding = "UTF-8")
+source("weights.R", encoding = "UTF-8")
+library(questionr)
+library(kableExtra)
+for (file in list.files("forestplots")) {
+  source(file.path("forestplots", file), encoding = "UTF-8")
+}
+set.seed(1714)
+```
+
+# Formateig
+
+```{r}
+df = read.csv("bbdd_matched_genetic.csv")
+df$hospital = NULL
+df$Severitat = NULL
+df$distance = NULL
+df$Ha.estat.a.la.UCI. = NULL
+```
+
+```{r}
+#dfn = read.csv("bbdd_neta.csv")
+df$Estatines = df$Estatines_ret
+df$Estatines_ret = NULL
+```
+
+Traiem les resines i l'omacor perquè tenen massa poca variabilitat.
+
+```{r}
+df$Resines = NULL
+df$Omacor..1g = NULL
+```
+
+```{r}
+df$Tabac = relevel(df$Tabac, "No")
+df$RX.tòrax = factor(df$RX.tòrax, levels = levels(df$RX.tòrax)[c(3, 2, 1)], 
+                      labels = c("No", "Unilateral", "Bilateral"))
+names(df)[names(df) == "Antiagregants.Anticoagulants"] = "A.A."
+names(df) = gsub("..", ".", names(df), fixed = T)
+names(df) = gsub(".abans.ingrès", "", names(df), fixed = T)
+names(df) = gsub(".Asma", "", names(df), fixed = T)
+names(df) = gsub("Altres.t", "T", names(df), fixed = T)
+```
+Nota: canvio el nom d'Antiagregants.Anticoagulants a A.A perquè si no ocupa massa i les coses es veuen malament.
+
+
+Mirem quantes dates d'ingrés o alta ens falten:
+
+```{r}
+df$data_covid = transform_dates(df$data_covid)
+df$data_ingres = transform_dates(df$data_ingres)
+df$data_alta = transform_dates(df$data_alta)
+falten_ingres = which(is.na(df$data_ingres))
+falten_alta = which(is.na(df$data_alta))
+```
+
+Hi ha `r length(falten_ingres)` pacients dels quals no tenim la data d'ingrés. Els traiem.
+
+```{r}
+df = df[complete.cases(df$data_ingres), ]
+```
+
+Fem una variable que controla quin esdeveniment de sortida (outcome) té cada pacient:
+
+```{r}
+df$esdeveniment = as.factor(ifelse(df$Mort == "Sí", "mort", 
+                         ifelse(is.na(df$data_alta), "censura", "alta")))
+```
+
+Hi ha `r length(unique( falten_alta))` pacients que encara estaven ingressats en el moment d'acabar l'estudi. Els censurem a data de l'últim dia de l'estudi, que és el 5 de juny.
+
+```{r}
+ultim_dia = as.Date("05/06/2020", format = "%d/%m/%Y")
+```
+
+```{r}
+df$data_alta[is.na(df$data_alta)] = ultim_dia
+```
+
+
+```{r}
+df$temps = as.numeric(df$data_alta - df$data_ingres)
+```
+
+```{r}
+# Filtrem els que tenen temps negatius o els que no tenen temps:
+df = df[complete.cases(df$temps), ]
+df = df[df$temps >= 0, ]
+```
+
+Hi ha encara algun pacient que té 0 dies d'estada:
+
+```{r}
+as.character(df$ids[df$temps == 0])
+df$ids = NULL
+```
+
+Sumem un dia a tots
+
+```{r}
+df$temps = df$temps + 1
+```
+
+Traiem els pacients que tenen pes 0.
+
+```{r}
+df = df[df$weights > 0, ]
+```
+
+# Anàlisi univariant
+
+Fem un test de chi^2 per entre prendre estatines o no i morir de covid o no:
+
+```{r}
+tt = questionr::wtd.table(df$Estatines, df$Mort, weights = df$weights)
+CrossTable(tt, chisq = T)
+```
+
+Aquí veiem que, les persones que **no** prenien estatines s'han mort en un 26.4%, les persones a qui els han retirat les estatines, en un 22.2% i les que no els les han retirat, en un 18.2%.
+
+Fem un gràfic:
+
+```{r}
+tdf = as.data.frame(tt)
+names(tdf) = c("Estatines", "Mort", "Número")
+tdf$Percentatge = 0
+est = sum(tdf$`Número`[tdf$Estatines == "Sí"])
+noest = sum(tdf$`Número`[tdf$Estatines == "No"])
+ret = sum(tdf$`Número`[tdf$Estatines == "Retirades"])
+tdf$Percentatge[tdf$Estatines == "Sí"] = tdf$`Número`[tdf$Estatines == "Sí"] / est * 100
+tdf$Percentatge[tdf$Estatines == "No"] = tdf$`Número`[tdf$Estatines == "No"] / noest * 100
+tdf$Percentatge[tdf$Estatines == "Retirades"] = tdf$`Número`[tdf$Estatines == "Retirades"] / ret * 100
+tdf$Mort = relevel(tdf$Mort, "Sí")
+```
+
+```{r}
+ggplot(data = tdf, aes(x = Estatines, y = Percentatge, fill = Mort)) +
+  geom_bar(stat = "identity", position = "stack") +
+  geom_text(
+    aes(label = paste0(round(Percentatge, 2), "%")),
+    position = position_stack(vjust = 0.5),
+    color = "black",
+    size = 5
+  ) +
+  ylab("%") +
+  ggtitle("Relació entre estatines i mort") +
+  scale_fill_brewer(palette = "Paired") +
+  theme_pubclean()
+```
+
+```{r}
+# Traiem totes les variables post-ingrés
+df_orig = df
+df = df[, -c(31:59)]
+df$data_covid = NULL
+df$data_alta = NULL
+df$data_ingres = NULL
+```
+
+# Model de supervivència
+
+Primer dibuixem una Kaplan Meier:
+
+```{r}
+dfkm = df
+dfkm$Mort = ifelse(dfkm$Mort == "No", 0, 1)
+surv = cbind(dfkm$temps,
+             dfkm$Mort,
+             dfkm$Estatines)
+surv = as.data.frame(surv)
+colnames(surv)=c("Temps", "Mort", "Estatines")
+
+sfit <- survfit(Surv(Temps, Mort)~strata(Estatines), data=surv, weights = dfkm$weights)
+
+ggsurvplot(
+   sfit,                     # survfit object with calculated statistics.
+   data = surv,  # data used to fit survival curves. 
+   risk.table = TRUE,       # show risk table.
+    legend.labs=c("No Estatines", "Retirades", "Estatines"),
+ #  pval = TRUE,             # show p-value of log-rank test.
+   conf.int = T,         # show confidence intervals for 
+                            # point estimaes of survival curves.
+   xlim = c(0,100),        # present narrower X axis, but not affect
+                            # survival estimates.
+  ylim = c(0.,1),
+   break.time.by = 10,     # break X axis in time intervals by 500.
+
+ ggtheme = theme_minimal(), # customize plot and risk table with a theme.
+ risk.table.y.text.col = T, # colour risk table text annotations.
+  risk.table.y.text = FALSE # show bars instead of names in text annotations
+#                            # in legend of risk table
+  
+)
+```
+
+L'efecte és petit, però hi és.
+
+## Cause specific hazard ratio
+
+Estratifiquem per sexe.
+
+```{r}
+tall = 100
+df$esdeveniment = as.factor(ifelse(df$temps >= tall, "censura",
+                                   as.character(df$esdeveniment)))
+df$esdeveniment = relevel(df$esdeveniment, "censura")
+```
+
+Tenim els següents esdeveniments:
+
+```{r}
+table(df$esdeveniment)
+```
+
+### Mort
+
+```{r}
+cox <- coxph(Surv(as.numeric(temps), esdeveniment == "mort") ~ . - Mort - weights
+             - Sexe + strata(Sexe),
+             data = df, 
+             weights = df$weights,
+             ties = "efron")
+summary(cox)
+```
+
+Forest plot:
+
+```{r, fig.height=12, fig.width=8}
+forest_model(cox, 
+             factor_separate_line = F, hide_ref = T, 
+             recalculate_width = T, recalculate_height = T,
+             format_options = list(text_size = 3))
+```
+
+### Alta
+
+```{r}
+cox <- coxph(Surv(as.numeric(temps), df$esdeveniment == "alta") ~ . - weights - Mort, 
+             data = df, 
+             weights = df$weights,
+             ties = "efron")
+
+summary(cox)
+```
+
+Forest plot:
+
+```{r, fig.height=12, fig.width=8}
+forest_model(cox, 
+             factor_separate_line = F, hide_ref = T, 
+             recalculate_width = T, recalculate_height = T,
+             format_options = list(text_size = 3))
+```
+
+I acabem per un competing risk
+
+## Competing risk
+
+### Mort
+
+```{r}
+fg = finegray(Surv(temps, esdeveniment) ~ . - Mort - weights, 
+              data = df, weights = df$weights, etype = "mort")
+fg$`(weights)` = NULL
+cox_fg = coxph(Surv(fgstart, fgstop, fgstatus) ~ . - Mort - fgwt - weights,  
+               fg, weights = fgwt)
+
+summary(cox_fg)
+```
+
+### Alta
+
+```{r}
+fg = finegray(Surv(temps, esdeveniment) ~ . - Mort - weights, data = df, weights = df$weights, etype = "alta")
+fg$`(weights)` = NULL
+cox_fg = coxph(Surv(fgstart, fgstop, fgstatus) ~ . - Mort - fgwt - weights,  
+               fg, weights = fgwt)
+
+summary(cox_fg)
+```

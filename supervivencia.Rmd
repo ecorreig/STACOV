@@ -1,0 +1,238 @@
+---
+title: "Models de supervivència"
+author: "Eudald Correig"
+date: "17/6/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+source("helpers.R", encoding = "UTF-8")
+library(dplyr)
+library(lubridate)
+library(survival)
+library(survminer)
+library(glmnet)
+require(cmprsk)
+require(ggplot2)
+library(cobalt)
+library(rlang)
+set.seed(1606)
+```
+
+```{r}
+dfm = read.csv("bbdd_matched_genetic.csv")
+dfo = read.csv("bbdd_dates.csv")
+dfo$ids = as.character(dfo$ids)
+dfo$weights = dfm$weights
+dfo$Tabac = relevel(dfo$Tabac, "No")
+dfo$RX.tòrax = factor(dfo$RX.tòrax, levels = levels(dfo$RX.tòrax)[c(3, 2, 1)], labels = c("No", "Unilateral", "Bilateral"))
+dfo$Severitat = factor(dfo$Severitat, levels = levels(dfo$Severitat)[c(2, 3, 1)])
+names(dfo)[29] = "A.A."
+```
+
+```{r}
+dfo$hospital = NULL
+dfo$Ha.estat.a.la.UCI. = NULL
+```
+
+Traiem les resines i l'omacor perquè tenen massa poca variabilitat
+
+```{r}
+dfo$Resines = NULL
+dfo$Omacor..1g = NULL
+```
+
+Mirem quantes dates d'ingrés o alta ens falten:
+
+```{r}
+dfo$data_covid = transform_dates(dfo$data_covid)
+dfo$data_ingres = transform_dates(dfo$data_ingres)
+dfo$data_alta = transform_dates(dfo$data_alta)
+falten_ingres = which(is.na(dfo$data_ingres))
+falten_alta = which(is.na(dfo$data_alta))
+```
+
+Perdem `r length(unique(c(falten_ingres, falten_alta)))` pacients als que els falten dates.
+
+```{r}
+dfo$temps = as.numeric(dfo$data_alta - dfo$data_ingres)
+```
+
+Filtrem els que tenen temps negatius o els que no tenen temps:
+
+```{r}
+dfo = dfo[complete.cases(dfo$temps), ]
+dfo = dfo[dfo$temps >= 0, ]
+```
+
+Els següents pacients tenen temps=0:
+
+```{r}
+dfo$ids[dfo$temps == 0]
+```
+
+Sumo un dia a tots:
+
+```{r}
+dfo$temps = dfo$temps + 1
+```
+
+
+Tenim `r nrow(dfo)` pacients.
+
+# Kaplan Meier
+
+Primer dibuixem la corba Kaplan - Meier:
+
+```{r}
+dfkm = dfo
+dfkm$Mort = ifelse(dfkm$Mort == "No", 0, 1)
+surv = cbind(dfkm$temps,
+             dfkm$Mort,
+             dfkm$Estatines)
+surv = as.data.frame(surv)
+colnames(surv)=c("Temps", "Mort", "Estatines")
+
+#surv$Temps[surv$Mort==0]<-100
+
+sfit <- survfit(Surv(Temps, Mort)~strata(Estatines), data=surv, weights = dfkm$weights)
+
+ggsurvplot(
+   sfit,                     # survfit object with calculated statistics.
+   data = surv,  # data used to fit survival curves. 
+   risk.table = TRUE,       # show risk table.
+    legend.labs=c("No Estatines", "Estatines"),
+ #  pval = TRUE,             # show p-value of log-rank test.
+   conf.int = T,         # show confidence intervals for 
+                            # point estimaes of survival curves.
+   xlim = c(0,100),        # present narrower X axis, but not affect
+                            # survival estimates.
+  ylim = c(0.,1),
+   break.time.by = 10,     # break X axis in time intervals by 500.
+
+ ggtheme = theme_minimal(), # customize plot and risk table with a theme.
+ risk.table.y.text.col = T, # colour risk table text annotations.
+  risk.table.y.text = FALSE # show bars instead of names in text annotations
+#                            # in legend of risk table
+  
+)
+```
+
+# Cox
+
+```{r}
+dfc = dfo
+dfc$Mort = ifelse(dfc$Mort == "No", 0, 1)
+dfc = dfc[dfc$weights > 0, ]
+cox <- coxph(Surv(as.numeric(temps), Mort) ~ . - weights, 
+             data = dfc[, c(1:44, 60, 66, 67)], weights = weights )
+
+summary(cox)
+```
+
+Forest plot:
+
+```{r, fig.height=12, fig.width=8}
+for (file in list.files("forestplots")) {
+  source(file.path("forestplots", file), encoding = "UTF-8")
+}
+
+forest_model(cox, 
+             factor_separate_line = F, hide_ref = T, 
+             recalculate_width = T, recalculate_height = T,
+             format_options = list(text_size = 3))
+```
+
+
+# Cox regularitzat
+
+```{r}
+dfcr = dfo
+```
+
+```{r}
+# Estandaritzem les variables contínues
+dfcr[, -c(66, 67)] = dfcr[, -c(66, 67)] %>%
+  mutate_if(is.numeric, scale)
+```
+
+Aquí he de treure els que estan 0 dies:
+
+```{r}
+dfcr = dfcr[dfcr$temps > 0, ]
+
+wg = dfcr$weights
+dfcr$weights=NULL
+mort = dfcr$Mort
+dfcr$Mort = NULL
+temps = dfcr$temps
+dfcr$temps=NULL
+x = model.matrix(~., dfcr[, c(1:44)])
+cvfit = cv.glmnet(x, Surv(temps, mort), weights = wg, family = "cox", alpha = 0.2)
+plot(cvfit)
+```
+
+```{r}
+cc = predict(cvfit, type='coefficients', s = "lambda.min")
+coefs = cc[1:dim(cc)[1],]
+ffc = coefs[coefs!=0]
+ffc
+```
+
+# Competing risks
+
+```{r}
+dfo = dfo[dfo$weights > 0, ]
+dfo$crvar = as.factor(ifelse(dfo$Mort == "Sí", "mort", 
+                             ifelse(dfo$temps < 60, "alta", "censura")))
+```
+
+Finegray analysis (competitive risk):
+
+Mortalitat:
+
+```{r}
+fg = finegray(Surv(temps, crvar) ~ . - Mort, dfo[, c(1:44, 60, 66:68)], etype = "mort")
+
+cox_fg = coxph(Surv(fgstart, fgstop, fgstatus) ~ . - Mort - fgwt - weights,  
+               fg, weights = weights )
+
+summary(cox_fg)
+```
+
+Alta:
+
+```{r}
+dfo$crvar2 = relevel(as.factor(dfo$crvar), "mort")
+fg = finegray(Surv(temps, crvar2) ~ . - Mort - crvar, dfo[, c(1:44, 60, 66:69)], 
+              etype = "alta")
+
+cox_fg = coxph(Surv(fgstart, fgstop, fgstatus) ~ . - Mort - crvar - fgwt- weights, 
+               fg, weights = weights )
+
+summary(cox_fg)
+```
+
+Dibuixem les corbes:
+
+```{r}
+# grip$crvar = as.factor(ifelse(grip$muere==1, 1, ifelse(grip$estancia<91, 2, 0)))
+fstatus = factor(dfo$crvar, levels = levels(dfo$crvar), 
+                 labels = c("Discharge", "Censored", "Death"))
+#group = factor(grip$tall_ov, levels(grip$tall_ov), c("No_Prolonged", "Prolonged"))
+crfit = cuminc(ftime = dfo$temps, fstatus = fstatus, group = dfo$Estatines)
+
+ggcompetingrisks(crfit, multiple_panels = F, conf.int = F) +
+  xlim(0, 60)
+#  theme_cowplot() + 
+#  scale_fill_jco()
+```
+
+Més gràfics:
+
+```{r}
+ggcompetingrisks(crfit,multiple_panels = T, conf.int = T) +
+  xlim(0, 60)
+```
+

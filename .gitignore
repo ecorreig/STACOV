@@ -1,0 +1,10 @@
+data
+*.xlsx
+*.csv
+*.docx
+.Rhistory
+.Rproj.user
+*_files
+altres.Rmd
+proves.*
+.RData

@@ -1,0 +1,119 @@
+---
+title: "matching retirada estatines"
+author: "Eudald Correig"
+date: "25/6/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(MatchIt)
+library(cobalt)
+library(glmnet)
+set.seed(1)
+```
+
+```{r}
+df = read.csv("bbdd_neta.csv")
+df$hospital = as.factor(df$hospital)
+df$Mort = relevel(df$Mort, "No")
+df$Severitat = factor(df$Severitat, levels = c("Mild", "Severe", "Death"))
+```
+
+# Propensity score
+
+Comencem calculant la propensity score utilitzant una regressió logística per intentar predir el fet d'estar tractats o no amb estatines. El propensity score es calcula amb les variables d'abans de l'ingrés, que són:
+
+```{r}
+df$Estatines = NULL
+vars = paste(names(df[, 2:32]), collapse = " + ")
+fmla = as.formula(paste0("Estatines_ret ~ ", vars))
+vars
+```
+
+Les variables que són significatives són:
+
+```{r}
+model <- model.matrix(fmla, data = df)
+fit <- cv.glmnet(model, df$Estatines, alpha = 1, family = "multinomial")
+plot(fit)
+cc = predict(fit, type = 'coefficients', s = "lambda.1se")
+coefs = c()
+for (el in cc) {
+  a = el[1:dim(el)[1], ]
+  coefs = c(coefs, a[a != 0])
+}
+coefs
+```
+
+
+# Propensity matching
+
+Fem el matching amb el mètode "genetic" [referència](https://r.iq.harvard.edu/docs/matchit/2.4-20/matchit.pdf).
+
+```{r}
+df$Estatines = ifelse(df$Estatines == "Sí", 1, 0)
+
+fmla = as.formula("Estatines_ret ~ HTA + Hiperlipemia + Diabetes +
+                  Ant.CI + Ant.MVP + Fibrat + ARA2 + Insulina + Antiagregants.Anticoagulants + LDL..abans.ingrès 
+                  + IECA")
+```
+
+```{r}
+m.full = matchit(formula = fmla , data = df, method = "genetic", pop.size = 1000)
+df$weights = m.full$weights
+df$distance = m.full$distance
+```
+
+Resum del propensity matching:
+
+```{r}
+sms = summary(m.full, standardize=T)
+sms
+```
+
+Gràfic
+
+Observem que el matching és gairebé perfecte:
+
+```{r}
+pdf("matching_plot.pdf")
+love.plot(m.full)
+dev.off()
+```
+
+Altres plots
+
+```{r}
+# plot(m.full, type = "jitter")
+```
+
+```{r}
+plot(m.full, type = "hist")
+```
+
+
+# Comparativa abans/després
+
+```{r}
+bal.tab(m.full)
+```
+
+Agafem les dates
+
+```{r}
+dts = read.csv("bbdd_dates.csv")
+```
+
+```{r}
+df$data_covid = dts$data_covid
+df$data_alta = dts$data_alta
+df$data_ingres = dts$data_ingres
+df$ids = dts$ids
+```
+
+Guardem la bbdd matchejada
+
+```{r}
+write.csv(df, "bbdd_matched_genetic.csv", row.names = F)
+```

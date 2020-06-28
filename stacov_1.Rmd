@@ -1,0 +1,483 @@
+---
+title: "Estudi provisional STACOV"
+author: "Eudald Correig"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+opts_chunk$set(echo = F, message = F, warning = F)
+library(dplyr)
+library(rlang)
+library(compareGroups)
+library(gmodels)
+library(glmnet)
+library(cvAUC)
+library(kableExtra)
+library(survival)
+library(survminer)
+require(cmprsk)
+require(ggplot2)
+library(cobalt)
+source("lasso.R", encoding = "UTF-8")
+source("corbes_roc.R", encoding = "UTF-8")
+source("helpers.R", encoding = "UTF-8")
+source("weights.R", encoding = "UTF-8")
+library(questionr)
+library(kableExtra)
+set.seed(1714)
+```
+
+# Introducció
+
+Aquest document és l'esquema de com podria ser l'estudi final, tot i que encara falta refinar-lo força. 
+
+## Consideracions generals
+
+Tenim tres factors que aporten una mica d'inestabilitat (o incertesa) a l'estudi. Estan força sota control, però encara poden tenir efectes sobre els resulats. Aquestes són:
+
+1. Imputació
+
+Hi ha força variables a les que els falten una quantitat notable de dades. Això fa que aquestes s'hagin d'imputar, i imputar és un procés en part aleatori, així que cada vegada que afegeixo dades o canvio qualsevol cosa i he de tornar a imputar, tenim un resultat lleugerament diferent.
+
+2. Propensity matching
+
+El propensity matching incorpora molta inestabilitat en un estudi; és a dir, que dos mètodes de "matchejat" diferents o fins i tot afegir o treure alguns pacients "claus" porten a resultats molt diferents. És per això que el resultats finals encara poden canviar una moderadament. 
+
+En tot cas, he fet servir un tipus de matching que es diu "genètic", és a dir, que fa servir algorismes genètics per trobar la millor solució possible. És el que dóna el millor resultat a nivell de distància abans/després, així que crec que és un bon candidat (altres candidats amb pitjor matxejat no donaven cap resultat per les estatines, per exemple).
+
+Aquí hi ha un gràfic sobre els biaxos abans i després:
+
+```{r}
+include_graphics("matching_plot.pdf")
+```
+
+
+3. Dades
+
+Amb l'experiència que hem tingut aquests dies amb les dates, estic veient que hi haurà força errors amb la base de dades que no tenim cap manera de trobar i que es col·laran a l'anàlisi. Això passa sempre i normalment no afecta notablement els resultats, però crec que és una cosa que hem de tenir sempre al cap. 
+
+Dit això, comencem:
+
+# Resum
+
+Primer trobaràs la taula 1 (1a i 1b), que són els valors de totes les variables en funció de si es prenen estatines o no, primer sense matxejar i després matxejat. Matxejat no tinc cap llibraria que ho deixi mig arreglat, així que he d'anar una per una i queda una mica lleig...
+
+En tot cas, després he fet 4 tipus d'anàlisis ja sempre sobre les dades matxejades:
+
+1. Anàlisi univariant (un chi^2 de tota la vida), que dóna significatiu i que podem veure al gràfic (de barres!) on les estatines són protectores. 
+
+2. Regressió logística univariada i multivariant: la univariada dóna significativa (si el chi quadrat hi dóna aquesta gairebé sempre també) però la multivariada no és significativa. Això és una mica un pal, però no és dramàtic, perquè els models de supervivència sí que donen bé. Per altra banda, també és possible que netejant una mica més les variables, la cosa millori una mica (tot i que no és segur)
+
+3. Regressió de cox: aquí sí que veiem que l'efecte de les estatines és molt clar! 
+
+4. Competing risks: ara normalment aquest tipus d'estudi ja tiren per aquest tipus de models, que són una mica més complexos que els de cox. En un competing risks, comparo les probabilitats de morir i les "faig competir" (les comparo) amb les probabilitats de tenir una alta. Amb aquest mètode es calcula millor la probabilitat de morir, ja que els pacients que tenen alta "surten" de l'estudi i per tant no queden com a persones que no moren. (En algun moment podem parlar d'això millor). En tot cas, poso el tall a 60 dies, on ja hi ha hagut la majoria d'esdeveniments, però aquest número es pot canviar fàcilment i no crec que afecti molt el resutlat.
+
+# Formateig
+
+```{r}
+df = read.csv("bbdd_matched_genetic.csv")
+df$Estatines = factor(df$Estatines, levels = c(0, 1), labels = c("No", "Sí"))
+df$hospital = NULL
+df$Severitat = NULL
+df$distance = NULL
+df$Ha.estat.a.la.UCI. = NULL
+```
+
+Traiem les resines i l'omacor perquè tenen massa poca variabilitat.
+
+```{r}
+df$Resines = NULL
+df$Omacor..1g = NULL
+```
+
+```{r}
+df$Tabac = relevel(df$Tabac, "No")
+df$RX.tòrax = factor(df$RX.tòrax, levels = levels(df$RX.tòrax)[c(3, 2, 1)], 
+                      labels = c("No", "Unilateral", "Bilateral"))
+names(df)[names(df) == "Antiagregants.Anticoagulants"] = "A.A."
+```
+Nota: canvio el nom d'Antiagregants.Anticoagulants a A.A perquè si no ocupa massa i les coses es veuen malament.
+
+
+Mirem quantes dates d'ingrés o alta ens falten:
+
+```{r}
+df$data_covid = transform_dates(df$data_covid)
+df$data_ingres = transform_dates(df$data_ingres)
+df$data_alta = transform_dates(df$data_alta)
+falten_ingres = which(is.na(df$data_ingres))
+falten_alta = which(is.na(df$data_alta))
+```
+
+Perdem `r length(unique(c(falten_ingres, falten_alta)))` pacients als que els falten dates.
+
+```{r}
+df$temps = as.numeric(df$data_alta - df$data_ingres)
+```
+
+Filtrem els que tenen temps negatius o els que no tenen temps:
+
+```{r}
+df = df[complete.cases(df$temps), ]
+df = df[df$temps >= 0, ]
+```
+
+Hi ha encara algun pacient que té 0 dies d'estada:
+
+```{r}
+as.character(df$ids[df$temps == 0])
+```
+
+Sumem un dia a tots
+
+```{r}
+df$temps = df$temps + 1
+```
+
+Traiem els pacients que tenen pes 0.
+
+```{r}
+df = df[df$weights > 0, ]
+```
+
+La distribució dels temps de seguiment és la següent:
+
+```{r}
+ggplot(df, aes(x = temps)) + 
+  geom_histogram(position = "identity", colour = "blue", fill = "white", binwidth = 1) +
+  theme_bw()
+```
+
+```{r}
+ggplot(df, aes(y = temps)) + 
+  stat_boxplot(geom = "errorbar", width = .3) + 
+  geom_boxplot() +
+  theme_bw()
+```
+
+Els descriptius del temps de seguiment són:
+
+```{r}
+describe(df$temps)
+```
+
+La mediana d'estada són 11 dies, i el rang interquartil va de 7 a 17 dies. El mínim és 1 dia i el màxim 86.
+
+# Descriptiu estatines
+
+## No matxejat
+
+```{r}
+dfn = read.csv("bbdd_neta.csv")
+dfn$hospital = NULL
+dfn$Mort = relevel(dfn$Mort, "No")
+```
+
+```{r}
+dfn$distance = NULL
+dfn$weights = NULL
+dfn$subclass = NULL
+```
+
+```{r}
+dfn$Tabac = relevel(dfn$Tabac, "No")
+dfn$`RX.tòrax` = factor(dfn$`RX.tòrax`, levels = levels(dfn$`RX.tòrax`)[c(3, 2, 1)], 
+                      labels = c("No", "Unilateral", "Bilateral"))
+names(dfn)[names(dfn) == "Antiagregants.Anticoagulants"] = "A.A."
+```
+
+
+```{r}
+tab = wtd_desc_table(df, "Estatines")
+names(tab) = c("Variable", "Levels", "All", "No estatins", "Statins", "p-value")
+kable(tab, row.names = F) %>%
+  kable_styling(bootstrap_options = "striped", full_width = F)
+```
+
+## Matxejat
+
+```{r}
+wtab = wtd_desc_table(df, "Estatines", df$weights)
+
+names(wtab) = c("Variable", "Levels", "All", "No estatins", "Statins", "p-value")
+kable(wtab, row.names = F) %>%
+  kable_styling(bootstrap_options = "striped", full_width = F)
+```
+
+Alerta perquè aquí hi ha valors no enters en alguns casos perquè estem tenin en compte els pesos (és a dir, podem tenir, per exemple, 100.4 persones que fumen i porten estatines)
+
+# Anàlisi univariant
+
+Fem un test de chi^2 per entre prendre estatines o no i morir de covid o no:
+
+```{r}
+tt = questionr::wtd.table(df$Estatines, df$Mort, weights = df$weights)
+CrossTable(tt, chisq = T)
+```
+
+El restultat és que prendre estatines és protector, el p valor és <0.001.
+
+Fem un gràfic:
+
+```{r}
+tdf = as.data.frame(tt)
+names(tdf) = c("Estatines", "Mort", "Número")
+tdf$Percentatge = 0
+est = sum(tdf$`Número`[tdf$Estatines == "Sí"])
+noest = sum(tdf$`Número`[tdf$Estatines == "No"])
+tdf$Percentatge[tdf$Estatines == "Sí"] = tdf$`Número`[tdf$Estatines == "Sí"] / est * 100
+tdf$Percentatge[tdf$Estatines == "No"] = tdf$`Número`[tdf$Estatines == "No"] / noest * 100
+tdf$Mort = relevel(tdf$Mort, "Sí")
+```
+
+```{r}
+ggplot(data = tdf, aes(x = Estatines, y = Percentatge, fill = Mort)) +
+  geom_bar(stat = "identity", position = "stack") +
+  geom_text(
+    aes(label = paste0(round(Percentatge, 2), "%")),
+    position = position_stack(vjust = 0.5),
+    color = "black",
+    size = 5
+  ) +
+  ylab("%") +
+  ggtitle("Relació entre estatines i mort") +
+  scale_fill_brewer(palette = "Paired") +
+  theme_pubclean()
+```
+
+Aquí veiem clarament que les estatines són protectores.
+
+```{r}
+# Traiem totes les variables post-ingrés
+df_orig = df
+df = df[, -c(31:59)]
+df$ids = NULL
+df$data_covid = NULL
+df$data_alta = NULL
+df$data_ingres = NULL
+```
+
+# Models
+
+Comencem amb una regrssió logística "normal", primer només amb estatines i després amb totes les variables:
+
+## Només estatines
+
+```{r}
+mg = glm(Mort ~ Estatines, df, family = "binomial", weights = weights)
+summary(mg)
+```
+
+Aquí són significatives; però què passa si fem una regressió amb totes les variables:
+
+**Nota: a partir d'aquí ja tots els anàlisis són multivariants**.
+
+```{r}
+mg = glm(Mort ~ . - weights - temps, df, family = "binomial", weights = weights)
+summary(mg)
+```
+
+Aquí ja no hi surten. És possible, de totes maneres, que revisant bé els models i sobretot les variables que hi hem entrat (que n'hi ha moltes), puguem canviar una mica les coses.
+
+En qualsevol cas, faig també una regressió logísica que utilitza regularitzacció d'"elastic net" per tal d'intentar eliminar totes aquelles variables que no aportin res al model. Aquí no parlem de variables significatives o no, si no que totes les que apareguin en el model final considerem que són predictores (que seria equivalent al significatives d'abans).
+
+A més, en aquests models també creem un conjunt d'entrenament i un conjunt de validació per tal de tenir una evaluació del model el més acurada possible. 
+
+```{r}
+# Estandaritzem les variables contínues
+df[, 1:31] = df[, 1:31] %>%
+  mutate_if(is.numeric, scale)
+```
+
+```{r}
+train = sample(1:nrow(df), round(nrow(df)/5*4))
+test = -train
+mod = logistic_EN(df[, c(1:32)], train=train, y_name = "Mort", 
+                  plots = F, lambda = "min", weights = T)
+
+```
+
+Els coeficients del model que són diferents de 0 (i per tant significatius) són:
+
+```{r}
+mod$Coeficients
+```
+
+Veiem que aquí tampoc hi són...
+
+Anem doncs a veure models de superivència, que, en aquests casos, són molt més sensibles a cadascuna de les variables:
+
+# Model de supervivència
+
+Primer dibuixem una Kaplan Meier (per nosaltres, jo no sé si la entraria a l'article):
+
+```{r}
+dfkm = df
+dfkm$Mort = ifelse(dfkm$Mort == "No", 0, 1)
+surv = cbind(dfkm$temps,
+             dfkm$Mort,
+             dfkm$Estatines)
+surv = as.data.frame(surv)
+colnames(surv)=c("Temps", "Mort", "Estatines")
+
+#surv$Temps[surv$Mort==0]<-100
+
+sfit <- survfit(Surv(Temps, Mort)~strata(Estatines), data=surv, weights = dfkm$weights)
+
+ggsurvplot(
+   sfit,                     # survfit object with calculated statistics.
+   data = surv,  # data used to fit survival curves. 
+   risk.table = TRUE,       # show risk table.
+    legend.labs=c("No Estatines", "Estatines"),
+ #  pval = TRUE,             # show p-value of log-rank test.
+   conf.int = T,         # show confidence intervals for 
+                            # point estimaes of survival curves.
+   xlim = c(0,100),        # present narrower X axis, but not affect
+                            # survival estimates.
+  ylim = c(0.,1),
+   break.time.by = 10,     # break X axis in time intervals by 500.
+
+ ggtheme = theme_minimal(), # customize plot and risk table with a theme.
+ risk.table.y.text.col = T, # colour risk table text annotations.
+  risk.table.y.text = FALSE # show bars instead of names in text annotations
+#                            # in legend of risk table
+  
+)
+```
+
+Ara fem dos models de cox, un regulartizat i l'altre no:
+
+## Cause specific hazard ratio
+
+```{r}
+dfc = df
+dfc$Mort = ifelse(dfc$Mort == "No", 0, 1)
+cox <- coxph(Surv(as.numeric(temps), Mort) ~ . - weights, data = dfc, weights = weights)
+
+summary(cox)
+```
+
+Les estatines segueixen sent significatives.
+
+Forest plot:
+
+```{r, fig.height=12, fig.width=8}
+for (file in list.files("forestplots")) {
+  source(file.path("forestplots", file), encoding = "UTF-8")
+}
+
+forest_model(cox, 
+             factor_separate_line = F, hide_ref = T, 
+             recalculate_width = T, recalculate_height = T,
+             format_options = list(text_size = 3))
+```
+
+Tenim els odd ratio amb els seus intervals de confiança a la columna de més a la dreta, el de les estatines és 0.72 amb interval (0.55, 0.93).
+
+## Cox regularitzat
+
+Aquest model és una mica més potent que l'anterior, però el resultat és molt similar, així que tot bé!
+
+```{r}
+wg = df$weights
+mort = df$Mort
+temps = df$temps
+x = model.matrix(~., df[, 1:30])
+cvfit = cv.glmnet(x, Surv(temps, mort), weights = wg, family = "cox", alpha = 1)
+cc = predict(cvfit, type='coefficients', s = "lambda.min")
+coefs = cc[1:dim(cc)[1],]
+coefs[coefs!=0]
+```
+
+# Competing risks
+
+Ara comparem tant la probabilitat de morir com la probabilitat d'alta en un model de competing risks:
+
+```{r}
+dfe = df
+dfe$crvar = as.factor(ifelse(df$Mort == "Sí", "mort", 
+                             ifelse(dfe$temps < 60, "alta", "censura")))
+```
+
+Finegray analysis (competitive risk):
+
+Mortalitat:
+
+```{r}
+fg = finegray(Surv(temps, crvar) ~ . - Mort - weights, data = dfe, weights = dfe$weights, etype = "mort")
+fg$`(weights)` = NULL
+cox_fg = coxph(Surv(fgstart, fgstop, fgstatus) ~ . - Mort - fgwt - weights,  
+               fg, weights = fgwt)
+
+summary(cox_fg)
+```
+
+Mirem les altes:
+
+```{r}
+dfe$crvar2 = relevel(as.factor(dfe$crvar), "mort")
+fg = finegray(Surv(temps, crvar2) ~ . - Mort - weights - crvar, dfe, weights = df$weights,
+              etype = "alta")
+fg$`(weights)` = NULL
+cox_fg = coxph(Surv(fgstart, fgstop, fgstatus) ~ . - Mort - crvar - fgwt- weights, 
+               fg, weights = fgwt )
+
+summary(cox_fg)
+```
+
+Aquí les estatines **no** són significatives.
+
+Dibuixem les corbes:
+
+```{r}
+tall = 60
+fstatus = factor(dfe$crvar, levels = levels(dfe$crvar), 
+                 labels = c("Discharge", "Censored", "Death"))
+#group = factor(grip$tall_ov, levels(grip$tall_ov), c("No_Prolonged", "Prolonged"))
+crfit = cuminc(ftime = dfe$temps, fstatus = fstatus, group = dfe$Estatines)
+
+ggcompetingrisks(crfit, multiple_panels = F, conf.int = F) +
+  xlim(0, tall)
+#  theme_cowplot() + 
+#  scale_fill_jco()
+```
+
+Més gràfics:
+
+```{r}
+ggcompetingrisks(crfit,multiple_panels = T, conf.int = T) +
+  xlim(0, tall)
+```
+
+
+```{r}
+library(cmprsk)
+```
+
+Non parametric cumulative incidence
+
+```{r}
+plot(cuminc(dfe$temps, dfe$crvar, cencode = "censura"))
+```
+
+Fine and gray cumulative incidence
+
+```{r}
+cov = model.matrix(~., dfe[, 1:30])[, -1]
+res = crr(ftime = dfe$temps, fstatus = dfe$crvar, cov1= cov, failcode = "mort", cencode = "censura")
+summary(res)
+```
+
+
+```{r}
+chr = coxph(Surv(dfe$temps, dfe$crvar == "mort") ~ dfe[, 1:30])
+```
+
+
+```{r}
+weib = cfc.survreg(Surv(temps, crvar) ~ . - Mort - weights, data = dfe)
+```
+
