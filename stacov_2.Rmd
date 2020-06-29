@@ -202,7 +202,7 @@ nice_table(tab)
 ## Matxejat
 
 ```{r}
-wtab = wtd_desc_table(df, "Estatines", df$weights)
+wtab = wtd_desc_table(df, "Estatines", weights = df$weights)
 
 names(wtab) = c("Variable", "Levels", "All", "No estatins", "Statins", "p-value")
 nice_table(wtab)
