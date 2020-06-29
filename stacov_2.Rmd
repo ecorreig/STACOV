@@ -16,10 +16,13 @@ library(gmodels)
 library(glmnet)
 library(survival)
 library(survminer)
-require(cmprsk)
-require(ggplot2)
+library(cmprsk)
+library(ggplot2)
 library(cobalt)
 library(questionr)
+
+# Alert: devtools::install_github("ecorreig/forestmodel")
+library(forestmodel)
 ```
 
 ```{r}
@@ -30,10 +33,6 @@ source(file.path(dir_, "corbes_roc.R"), encoding = "UTF-8")
 source(file.path(dir_, "helpers.R"), encoding = "UTF-8")
 source(file.path(dir_, "weights.R"), encoding = "UTF-8")
 source(file.path(dir_, "grafics.R"), encoding = "UTF-8")
-
-for (file in list.files("forestplots")) {
-  source(file.path("forestplots", file), encoding = "UTF-8")
-}
 ```
 
 ```{r}
@@ -43,7 +42,7 @@ set.seed(1714)
 
 ```{r}
 # consts
-comp = T
+comp = F
 tall = 42
 ```
 
@@ -345,15 +344,13 @@ cox <-
 cox_sum_table(cox)
 ```
 
-```{r}
-df$ids = 1:nrow(df)
-```
-
 Dibuixem les corbes de supervivència:
 
 ```{r}
+df$ids = 1:nrow(df)
 aa = pred_adj_curves(cox, df, ids = "ids", group = "Estatines", strata = "Sexe")
 plot_corbes_surv(aa, "Estatines", lims = c(0, 42))
+df$ids = NULL
 ```
 
 Separem entre homes i dones perquè es vegi millor (i, ja que hem estratificat els models, té més sentit):
@@ -374,7 +371,7 @@ plot_corbes_surv(homes, "Estatines", lims = c(0, 42))
 
 Forest plot:
 
-```{r, fig.height=12, fig.width=8}
+```{r, fig.height=8, fig.width=8}
 forest_model(
   cox,
   factor_separate_line = F,
@@ -416,8 +413,10 @@ cox_sum_table(cox)
 Dibuixem les corbes de supervivència:
 
 ```{r}
+df$ids = 1:nrow(df)
 aa = pred_adj_curves(cox, df, ids = "ids", group = "Estatines", strata = "Sexe")
 plot_corbes_surv(aa, "Estatines", lims = c(0, 42))
+df$ids = NULL
 ```
 
 Separem entre homes i dones perquè es vegi millor (i, ja que hem estratificat els models, té més sentit):
@@ -438,7 +437,7 @@ plot_corbes_surv(homes, "Estatines", lims = c(0, 42))
 
 Forest plot:
 
-```{r, fig.height=12, fig.width=8}
+```{r, fig.height=8, fig.width=8}
 forest_model(
   cox,
   factor_separate_line = F,
@@ -463,6 +462,7 @@ I acabem per un competing risk
 ### Mort
 
 ```{r}
+df$ids = 1:nrow(df)
 fg = finegray(
   Surv(temps, esdeveniment) ~ . - Mort - weights - ids,
   data = df,
@@ -485,6 +485,7 @@ Corbes d'acumulació d'esdeveniments:
 ```{r}
 aa = pred_adj_curves(cox_fg, fg, ids = "ids", group = "Estatines", strata = "Sexe", cuminc = T)
 plot_corbes_surv(aa, "Estatines", lims = c(0, 42))
+df$ids = NULL
 ```
 
 Tornem a separar entre homes i dones:
@@ -505,7 +506,7 @@ plot_corbes_surv(homes, "Estatines", lims = c(0, 42))
 
 ```{r, eval=comp}
 # Comprovem que l'assumpció de la proporcionalitat de la subdistribució es compleix:
-cov = model.matrix( ~ . - ids - Mort - weights - esdeveniment, data = df)[, -1]
+cov = model.matrix( ~ . - Mort - weights - esdeveniment, data = df)[, -1]
 crr = crr(
   ftime = df$temps,
   fstatus = df$esdeveniment,
@@ -525,6 +526,7 @@ for (j in 1:ncol(crr$res)) {
 ### Alta
 
 ```{r}
+df$ids = 1:nrow(df)
 fg = finegray(
   Surv(temps, esdeveniment) ~ . - Mort - weights - ids,
   data = df,
@@ -543,8 +545,10 @@ cox_sum_table(cox_fg)
 ```
 
 ```{r}
+df$ids = 1:nrow(df)
 aa = pred_adj_curves(cox_fg, fg, ids = "ids", group = "Estatines", strata = "Sexe", cuminc = T)
 plot_corbes_surv(aa, "Estatines", lims = c(0, 42))
+df$ids = NULL
 ```
 
 Tornem a separar entre homes i dones:
