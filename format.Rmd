@@ -14,8 +14,8 @@ library(xray)
 ```
 
 ```{r}
-_dir = "helpers"
-source(file.path(_dir, "helpers.R"), encoding = "UTF-8")
+dir_ = "helpers"
+source(file.path(dir_, "helpers.R"), encoding = "UTF-8")
 ```
 
 ```{r}

@@ -24,12 +24,12 @@ library(questionr)
 
 ```{r}
 # sources
-_dir = "helpers"
-source(file.path(_dir, "lasso.R"), encoding = "UTF-8")
-source(file.path(_dir, "corbes_roc.R"), encoding = "UTF-8")
-source(file.path(_dir, "helpers.R"), encoding = "UTF-8")
-source(file.path(_dir, "weights.R"), encoding = "UTF-8")
-source(file.path(_dir, "grafics.R"), encoding = "UTF-8")
+dir_ = "helpers"
+source(file.path(dir_, "lasso.R"), encoding = "UTF-8")
+source(file.path(dir_, "corbes_roc.R"), encoding = "UTF-8")
+source(file.path(dir_, "helpers.R"), encoding = "UTF-8")
+source(file.path(dir_, "weights.R"), encoding = "UTF-8")
+source(file.path(dir_, "grafics.R"), encoding = "UTF-8")
 
 for (file in list.files("forestplots")) {
   source(file.path("forestplots", file), encoding = "UTF-8")
@@ -39,6 +39,12 @@ for (file in list.files("forestplots")) {
 ```{r}
 # seed
 set.seed(1714)
+```
+
+```{r}
+# consts
+comp = F
+tall = 42
 ```
 
 
@@ -299,22 +305,13 @@ ggsurvplot(
 )
 ```
 
-```{r, eval=F}
-cmc = cuminc(dfkm$temps,
-             dfkm$Mort,
-             dfkm$Estatines, 
-             strata = dfkm$Sexe)
-ggcompetingrisks(cmc)
-```
-
 Ara fem un anàlisi de Cause Specific Hazard Ratio
 
 ## Cause specific hazard ratio
 
-**Alerta:** posem el punt de tall de l'estudi a 42 dies.
+**Alerta:** posem el punt de tall de l'estudi a `r tall` dies.
 
 ```{r}
-tall = 42
 df$esdeveniment = as.factor(ifelse(df$temps >= tall, "censura",
                                    as.character(df$esdeveniment)))
 df$esdeveniment = relevel(df$esdeveniment, "censura")
@@ -328,10 +325,11 @@ table(df$esdeveniment)
 
 ### Mort
 
-```{r, results='asis'}
+```{r}
 cox <-
   coxph(
-    Surv(as.numeric(temps), esdeveniment == "mort") ~ . - Mort - weights
+    Surv(as.numeric(temps), esdeveniment == "mort") ~ . - Mort - weights - Ant.CI - Ant.MRC -
+      Ant.MPOC
     - Sexe + strata(Sexe),
     data = df,
     weights = df$weights,
@@ -378,6 +376,19 @@ forest_model(
   recalculate_height = T,
   format_options = list(text_size = 3)
 )
+```
+
+Comprovació de l'assumpció de riscs proporcionals:
+
+```{r, eval=comp}
+tph = cox.zph(cox)
+tph
+```
+
+Gràficament:
+
+```{r}
+plot(tph)
 ```
 
 ### Alta
@@ -431,6 +442,13 @@ forest_model(
 )
 ```
 
+Comprovació de l'assumpció de riscs proporcionals:
+
+```{r, eval=comp}
+tph = cox.zph(cox)
+tph
+```
+
 I acabem per un competing risk
 
 ## Competing risk
@@ -476,6 +494,25 @@ plot_corbes_surv(dones, "Estatines", lims = c(0, 42))
 ```{r}
 homes = aa[substr(as.character(aa$Estatines), 1, 4) == "Home", ]
 plot_corbes_surv(homes, "Estatines", lims = c(0, 42))
+```
+
+```{r, eval=comp}
+# Comprovem que l'assumpció de la proporcionalitat de la subdistribució es compleix:
+cov = model.matrix( ~ . - ids - Mort - weights - esdeveniment, data = df)[, -1]
+crr = crr(
+  ftime = df$temps,
+  fstatus = df$esdeveniment,
+  cov1 = cov,
+  failcode = "mort",
+  cencode = "censura"
+)
+# summary(crr)
+for (j in 1:ncol(crr$res)) {
+  scatter.smooth(crr$uftime, crr$res[, j], 
+                 main = names(crr$coef)[j],
+                 xlab = "Failure time", 
+                 ylab = "Schoenfeld residuals")
+}
 ```
 
 ### Alta
