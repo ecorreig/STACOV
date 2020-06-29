@@ -6,28 +6,44 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
+# libraries
 library(knitr)
-opts_chunk$set(echo = F, warning = F, message = F)
+opts_chunk$set(echo = F, message = F, warning = F)
 library(dplyr)
 library(rlang)
 library(gmodels)
 library(glmnet)
-library(cvAUC)
-library(kableExtra)
 library(survival)
 library(survminer)
 require(cmprsk)
 require(ggplot2)
-source("lasso.R", encoding = "UTF-8")
-source("corbes_roc.R", encoding = "UTF-8")
-source("helpers.R", encoding = "UTF-8")
-source("weights.R", encoding = "UTF-8")
+library(cobalt)
 library(questionr)
-library(kableExtra)
+```
+
+```{r}
+# sources
+dir_ = "helpers"
+source(file.path(dir_, "lasso.R"), encoding = "UTF-8")
+source(file.path(dir_, "corbes_roc.R"), encoding = "UTF-8")
+source(file.path(dir_, "helpers.R"), encoding = "UTF-8")
+source(file.path(dir_, "weights.R"), encoding = "UTF-8")
+source(file.path(dir_, "grafics.R"), encoding = "UTF-8")
+
 for (file in list.files("forestplots")) {
   source(file.path("forestplots", file), encoding = "UTF-8")
 }
+```
+
+```{r}
+# seed
 set.seed(1714)
+```
+
+```{r}
+# consts
+comp = T
+tall = 42
 ```
 
 # Formateig
@@ -38,6 +54,7 @@ df$hospital = NULL
 df$Severitat = NULL
 df$distance = NULL
 df$Ha.estat.a.la.UCI. = NULL
+df$intensitat = NULL
 ```
 
 ```{r}
@@ -114,6 +131,12 @@ Hi ha encara algun pacient que té 0 dies d'estada:
 
 ```{r}
 as.character(df$ids[df$temps == 0])
+```
+
+El pacient 19-022 sabem que va estar menys de 24 hores ingressat, per tant el traiem:
+
+```{r}
+df = df[df$ids != "19-022", ]
 df$ids = NULL
 ```
 

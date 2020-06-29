@@ -43,7 +43,7 @@ set.seed(1714)
 
 ```{r}
 # consts
-comp = F
+comp = T
 tall = 42
 ```
 
@@ -129,8 +129,15 @@ Hi ha encara algun pacient que té 0 dies d'estada:
 
 ```{r}
 as.character(df$ids[df$temps == 0])
+```
+
+El pacient 19-022 sabem que va estar menys de 24 hores ingressat, per tant el traiem:
+
+```{r}
+df = df[df$ids != "19-022", ]
 df$ids = NULL
 ```
+
 
 Sumem un dia a tots
 
@@ -387,7 +394,7 @@ tph
 
 Gràficament:
 
-```{r}
+```{r, eval=comp}
 plot(tph)
 ```
 
@@ -470,7 +477,7 @@ cox_fg = coxph(
   weights = fgwt
 )
 
-cox_sum_table(cox)
+cox_sum_table(cox_fg)
 ```
 
 Corbes d'acumulació d'esdeveniments:
@@ -532,7 +539,7 @@ cox_fg = coxph(
   weights = fgwt
 )
 
-cox_sum_table(cox)
+cox_sum_table(cox_fg)
 ```
 
 ```{r}
@@ -555,6 +562,4 @@ plot_corbes_surv(dones, "Estatines", lims = c(0, 42))
 homes = aa[substr(as.character(aa$Estatines), 1, 4) == "Home", ]
 plot_corbes_surv(homes, "Estatines", lims = c(0, 42))
 ```
-
-
 
