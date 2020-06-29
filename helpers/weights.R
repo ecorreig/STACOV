@@ -159,10 +159,14 @@ weighted_ttest_helper <- function(xv, yv, wx, wy, nx, ny, mu, paired, alternativ
   tt
 }
 
-wtd_desc_table <- function(df, group_name, weights=NULL, r_num=2, p_num=5) {
+wtd_desc_table <- function(df, group_name, ids=NULL, weights=NULL, r_num=2, p_num=5) {
   library(reldist)
   library(sjstats)
   library(weights)
+  
+  for (col in ids) {
+    df[, col] = NULL
+  }
   
   if (is.null(weights)) {
     df$weights = rep(1, nrow(df))
