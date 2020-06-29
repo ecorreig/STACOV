@@ -134,7 +134,6 @@ El pacient 19-022 sabem que va estar menys de 24 hores ingressat, per tant el tr
 
 ```{r}
 df = df[df$ids != "19-022", ]
-df$ids = NULL
 ```
 
 
@@ -182,7 +181,6 @@ Taules descriptives:
 ```{r}
 dfn = read.csv("bbdd_neta.csv")
 dfn$Estatines_ret = NULL
-dfn$hospital = NULL
 dfn$Mort = relevel(dfn$Mort, "No")
 ```
 
@@ -194,7 +192,7 @@ names(dfn)[names(dfn) == "Antiagregants.Anticoagulants"] = "A.A."
 ```
 
 ```{r}
-tab = wtd_desc_table(dfn, "Estatines")
+tab = wtd_desc_table(dfn, "Estatines",  ids = c("ids", "hospital"))
 names(tab) = c("Variable", "Levels", "All", "No estatins", "Statins", "p-value")
 nice_table(tab)
 ```
@@ -202,7 +200,7 @@ nice_table(tab)
 ## Matxejat
 
 ```{r}
-wtab = wtd_desc_table(df, "Estatines", df$weights)
+wtab = wtd_desc_table(df, "Estatines", ids = c("ids", "hospital"), df$weights)
 
 names(wtab) = c("Variable", "Levels", "All", "No estatins", "Statins", "p-value")
 nice_table(wtab)
@@ -339,6 +337,7 @@ cox <-
     - Sexe + strata(Sexe),
     data = df,
     weights = df$weights,
+    cluster = hospital,
     ties = "efron"
   )
 cox_sum_table(cox)
