@@ -128,12 +128,6 @@ Hi ha encara algun pacient que té 0 dies d'estada:
 
 ```{r}
 as.character(df$ids[df$temps == 0])
-```
-
-El pacient 19-022 sabem que va estar menys de 24 hores ingressat, per tant el traiem:
-
-```{r}
-df = df[df$ids != "19-022", ]
 df$ids = NULL
 ```
 
