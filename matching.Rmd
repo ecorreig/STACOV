@@ -50,12 +50,17 @@ Fem el matching amb el mètode "genetic" [referència](https://r.iq.harvard.edu/
 ```{r}
 df$Estatines = ifelse(df$Estatines == "Sí", 1, 0)
 
-fmla = as.formula("Estatines ~ Tabac + HTA + Hiperlipemia + Diabetes + Obesitat +
+fmla = as.formula("Estatines ~ Edat + Tabac + HTA + Hiperlipemia + Diabetes + Obesitat +
                   Ant.CI + Ant.Ictus + Ant.MVP + Ant.MPOC.Asma + Ant.MHepC + Ant.MRC")
 ```
 
 ```{r}
-m.full = matchit(formula = fmla , data = df, method = "genetic", pop.size = 1200)
+m.full = matchit(formula = fmla , 
+                 data = df, 
+                 method = "genetic", 
+                 pop.size = 1200, 
+                 replace = T)
+
 # m.full = matchit(formula = fmla , data = df, method = "optimal", ratio=1)
 df$weights = m.full$weights
 df$distance = m.full$distance
