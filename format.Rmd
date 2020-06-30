@@ -60,6 +60,14 @@ df$`Identificació pacient`[quins]
 df = df[-quins, ]
 ```
 
+Traiem 10 pacients que tenen menys d'un dia d'estada:
+
+```{r}
+fora = c("3-093", "3-099", "10-107", "11-044", "13-129", "13-197", "19-022")
+df = df[-which(df$`Identificació pacient` %in% fora), ]
+```
+
+
 Tenim `r nrow(df)` observacions.
 
 ```{r}
