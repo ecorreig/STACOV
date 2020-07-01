@@ -15,10 +15,11 @@ library(gmodels)
 library(glmnet)
 library(survival)
 library(survminer)
-require(cmprsk)
-require(ggplot2)
+library(cmprsk)
+library(ggplot2)
 library(cobalt)
 library(questionr)
+library(forestmodel)
 ```
 
 ```{r}
@@ -29,10 +30,6 @@ source(file.path(dir_, "corbes_roc.R"), encoding = "UTF-8")
 source(file.path(dir_, "helpers.R"), encoding = "UTF-8")
 source(file.path(dir_, "weights.R"), encoding = "UTF-8")
 source(file.path(dir_, "grafics.R"), encoding = "UTF-8")
-
-for (file in list.files("forestplots")) {
-  source(file.path("forestplots", file), encoding = "UTF-8")
-}
 ```
 
 ```{r}
@@ -55,6 +52,7 @@ df$Severitat = NULL
 df$distance = NULL
 df$Ha.estat.a.la.UCI. = NULL
 df$intensitat = NULL
+df$ids = NULL
 ```
 
 ```{r}
@@ -79,6 +77,7 @@ names(df) = gsub("..", ".", names(df), fixed = T)
 names(df) = gsub(".abans.ingrès", "", names(df), fixed = T)
 names(df) = gsub(".Asma", "", names(df), fixed = T)
 names(df) = gsub("Altres.t", "T", names(df), fixed = T)
+df_orig = df
 ```
 Nota: canvio el nom d'Antiagregants.Anticoagulants a A.A perquè si no ocupa massa i les coses es veuen malament.
 
@@ -121,36 +120,38 @@ df$data_alta[is.na(df$data_alta)] = ultim_dia
 df$temps = as.numeric(df$data_alta - df$data_ingres)
 ```
 
-```{r}
-# Filtrem els que tenen temps negatius o els que no tenen temps:
-df = df[complete.cases(df$temps), ]
-df = df[df$temps >= 0, ]
-```
-
-Hi ha encara algun pacient que té 0 dies d'estada:
-
-```{r}
-as.character(df$ids[df$temps == 0])
-```
-
-El pacient 19-022 sabem que va estar menys de 24 hores ingressat, per tant el traiem:
-
-```{r}
-df = df[df$ids != "19-022", ]
-df$ids = NULL
-```
-
-Sumem un dia a tots
-
-```{r}
-df$temps = df$temps + 1
-```
-
 Traiem els pacients que tenen pes 0.
 
 ```{r}
 df = df[df$weights > 0, ]
 ```
+
+# Descriptiu
+
+## No matxejat
+
+```{r}
+dfn = read.csv("bbdd_neta.csv")
+dfn$Estatines_ret = NULL
+dfn$hospital = NULL
+dfn$Mort = relevel(dfn$Mort, "No")
+dfn$Estatines = df_orig$Estatines
+```
+
+```{r}
+dfn$Tabac = relevel(dfn$Tabac, "No")
+dfn$`RX.tòrax` = factor(dfn$`RX.tòrax`, levels = levels(dfn$`RX.tòrax`)[c(3, 2, 1)], 
+                      labels = c("No", "Unilateral", "Bilateral"))
+names(dfn)[names(dfn) == "Antiagregants.Anticoagulants"] = "A.A."
+```
+
+```{r}
+tab = wtd_desc_table(dfn, "Estatines")
+names(tab) = c("Variable", "Levels", "All", "No estatins", "Statins", "p-value")
+nice_table(tab)
+```
+
+
 
 # Anàlisi univariant
 

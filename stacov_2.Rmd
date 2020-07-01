@@ -46,7 +46,6 @@ comp = F
 tall = 42
 ```
 
-
 # Formateig
 
 ```{r}
@@ -58,6 +57,7 @@ df$Severitat = NULL
 df$distance = NULL
 df$Ha.estat.a.la.UCI. = NULL
 df$intensitat = NULL
+df$ids = NULL
 ```
 
 Traiem les resines i l'omacor perquè tenen massa poca variabilitat.
@@ -116,26 +116,6 @@ df$data_alta[is.na(df$data_alta)] = ultim_dia
 
 ```{r}
 df$temps = as.numeric(df$data_alta - df$data_ingres)
-```
-
-```{r}
-# Filtrem els que tenen temps negatius o els que no tenen temps:
-df = df[complete.cases(df$temps), ]
-df = df[df$temps >= 0, ]
-```
-
-Hi ha encara algun pacient que té 0 dies d'estada:
-
-```{r}
-as.character(df$ids[df$temps == 0])
-df$ids = NULL
-```
-
-
-Sumem un dia a tots
-
-```{r}
-df$temps = df$temps + 1
 ```
 
 Traiem els pacients que tenen pes 0.
@@ -328,8 +308,7 @@ table(df$esdeveniment)
 ```{r}
 cox <-
   coxph(
-    Surv(as.numeric(temps), esdeveniment == "mort") ~ . - Mort - weights - Ant.CI - Ant.MRC -
-      Ant.MPOC
+    Surv(as.numeric(temps), esdeveniment == "mort") ~ . - Mort - weights
     - Sexe + strata(Sexe),
     data = df,
     weights = df$weights,
