@@ -50,7 +50,18 @@ Fem el matching amb el mètode "genetic" [referència](https://r.iq.harvard.edu/
 ```{r}
 df$Estatines = ifelse(df$Estatines == "Sí", 1, 0)
 
-fmla = as.formula("Estatines ~ Edat + Hiperlipemia + Diabetes + Obesitat +
+mtemp = matchit(Estatines~Edat, method = "genetic", data = df, replace = F, pop.size = 1500)
+```
+
+```{r}
+df = df[mtemp$weights > 0, ]
+```
+
+
+
+```{r}
+
+fmla = as.formula("Estatines ~  Diabetes +
                   Ant.CI + Ant.Ictus + Ant.MVP + Ant.MRC")
 ```
 
@@ -94,17 +105,22 @@ Altres plots
 plot(m.full, type = "hist")
 ```
 
-
 # Comparativa abans/després
 
 ```{r}
 bal.tab(m.full)
 ```
 
+```{r}
+keep = which(mtemp$weights > 0)
+```
+
+
 Agafem les dates
 
 ```{r}
 dts = read.csv("bbdd_dates.csv")
+dts = dts[keep, ]
 ```
 
 ```{r}

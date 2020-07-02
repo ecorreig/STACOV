@@ -49,7 +49,7 @@ tall = 42
 # Formateig
 
 ```{r}
-df = read.csv("bbdd_matched_genetic.csv")
+df = read.csv("bbdd_matched_genetic - good.csv")
 df$Estatines_ret = NULL
 df$Estatines = factor(df$Estatines, levels = c(0, 1), labels = c("No", "Sí"))
 df$hospital = NULL
@@ -117,6 +117,13 @@ df$data_alta[is.na(df$data_alta)] = ultim_dia
 ```{r}
 df$temps = as.numeric(df$data_alta - df$data_ingres)
 ```
+
+ALERTA - FENT PROVES
+
+```{r}
+#df = df[!rownames(df) %in% c("478", "1432", "1681", "1929"), ]
+```
+
 
 Traiem els pacients que tenen pes 0.
 
@@ -316,6 +323,15 @@ cox <-
   )
 cox_sum_table(cox)
 ```
+
+```{r}
+ggcoxdiagnostics(cox)
+```
+
+```{r}
+#View(dfn[which(cox$residuals < -2), ])
+```
+
 
 Dibuixem les corbes de supervivència:
 
