@@ -25,7 +25,7 @@ df$Severitat = factor(df$Severitat, levels = c("Mild", "Severe", "Death"))
 Comencem calculant la propensity score utilitzant una regressió logística per intentar predir el fet d'estar tractats o no amb estatines. El propensity score es calcula amb les variables d'abans de l'ingrés, que són:
 
 ```{r}
-vars = paste(names(df[, 2:17, 19:33]), collapse = " + ")
+vars = paste(names(df[, 3:17, 19:33]), collapse = " + ")
 fmla = as.formula(paste0("Estatines ~ ", vars))
 vars
 ```
@@ -50,19 +50,8 @@ Fem el matching amb el mètode "genetic" [referència](https://r.iq.harvard.edu/
 ```{r}
 df$Estatines = ifelse(df$Estatines == "Sí", 1, 0)
 
-mtemp = matchit(Estatines~Edat, method = "genetic", data = df, replace = F, pop.size = 1500)
-```
-
-```{r}
-df = df[mtemp$weights > 0, ]
-```
-
-
-
-```{r}
-
-fmla = as.formula("Estatines ~  Diabetes +
-                  Ant.CI + Ant.Ictus + Ant.MVP + Ant.MRC")
+fmla = as.formula("Estatines ~ Edat + Tabat + HTA + Hiperlipemia + Diabetes + Obesitat +
+                  Ant.CI + Ant.Ictus + Ant.MVP + Ant.MPOC.Asma + Ant.MRC")
 ```
 
 ```{r}
@@ -120,7 +109,7 @@ Agafem les dates
 
 ```{r}
 dts = read.csv("bbdd_dates.csv")
-dts = dts[keep, ]
+#dts = dts[keep, ]
 ```
 
 ```{r}

@@ -530,19 +530,19 @@ Variables que necessiten logaritme: FiO2, Pa02, Dímer D, PCR, Ferritina, Limfos
 
 Imputem els missings
 
-```{r, eval=F}
+```{r, eval=T}
 df$hospital = as.factor(df$hospital)
 aa = missForest(df)
 dfi = aa$ximp
 ```
 
-```{r, eval=F}
+```{r, eval=T}
 write.csv(dfi, "bbdd_neta.csv", row.names=F)
 ```
 
 Faig una segona versió amb les dates
 
-```{r, eval=F}
+```{r, eval=T}
 dff = cbind.data.frame(dfi, ids, data_covid, data_ingres, data_alta)
 write.csv(dff, "bbdd_dates.csv", row.names = F)
 ```
