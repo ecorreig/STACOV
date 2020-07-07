@@ -44,13 +44,13 @@ set.seed(1714)
 # consts
 comp = F
 tall = 42
+save_plots = T
 ```
 
 # Formateig
 
 ```{r}
-df = read.csv("bbdd_matched_genetic - good.csv")
-df$Estatines_ret = NULL
+df = read.csv("bbdd_matched_genetic_bona2.csv")
 df$Estatines = factor(df$Estatines, levels = c(0, 1), labels = c("No", "Sí"))
 df$hospital = NULL
 df$Severitat = NULL
@@ -117,13 +117,6 @@ df$data_alta[is.na(df$data_alta)] = ultim_dia
 ```{r}
 df$temps = as.numeric(df$data_alta - df$data_ingres)
 ```
-
-ALERTA - FENT PROVES
-
-```{r}
-#df = df[!rownames(df) %in% c("478", "1432", "1681", "1929"), ]
-```
-
 
 Traiem els pacients que tenen pes 0.
 
@@ -205,29 +198,9 @@ El restultat és que prendre estatines és protector, el p valor és `r chisq.te
 Fem un gràfic:
 
 ```{r}
-tdf = as.data.frame(tt)
-names(tdf) = c("Estatines", "Mort", "Número")
-tdf$Percentatge = 0
-est = sum(tdf$`Número`[tdf$Estatines == "Sí"])
-noest = sum(tdf$`Número`[tdf$Estatines == "No"])
-tdf$Percentatge[tdf$Estatines == "Sí"] = tdf$`Número`[tdf$Estatines == "Sí"] / est * 100
-tdf$Percentatge[tdf$Estatines == "No"] = tdf$`Número`[tdf$Estatines == "No"] / noest * 100
-tdf$Mort = relevel(tdf$Mort, "Sí")
-```
-
-```{r}
-ggplot(data = tdf, aes(x = Estatines, y = Percentatge, fill = Mort)) +
-  geom_bar(stat = "identity", position = "stack") +
-  geom_text(
-    aes(label = paste0(round(Percentatge, 2), "%")),
-    position = position_stack(vjust = 0.5),
-    color = "black",
-    size = 5
-  ) +
-  ylab("%") +
-  ggtitle("Relació entre estatines i mort") +
-  scale_fill_brewer(palette = "Paired") +
-  theme_pubclean()
+levels(df$Estatines_ret)[3] = "No retirades"
+stacked_bar_plot(df, save = save_plots)
+df$Estatines_ret = NULL
 ```
 
 ```{r}
@@ -324,18 +297,13 @@ cox <-
 cox_sum_table(cox)
 ```
 
-```{r}
+```{r, eval=comp}
 ggcoxdiagnostics(cox)
 ```
 
-```{r}
-#View(dfn[which(cox$residuals < -2), ])
-```
-
-
 Dibuixem les corbes de supervivència:
 
-```{r}
+```{r, eval=comp}
 df$ids = 1:nrow(df)
 aa = pred_adj_curves(cox, df, ids = "ids", group = "Estatines", strata = "Sexe")
 plot_corbes_surv(aa, "Estatines", lims = c(0, 42))
@@ -348,14 +316,28 @@ Separem entre homes i dones perquè es vegi millor (i, ja que hem estratificat e
 
 ```{r}
 dones = aa[substr(as.character(aa$Estatines), 1, 4) == "Dona", ]
-plot_corbes_surv(dones, "Estatines", lims = c(0, 42))
+dones$Estatines = factor(dones$Estatines, 
+                         levels = c("DonaSí", "DonaNo"),
+                         labels = c("Yes", "No"))
+names(dones)[2] = c("Statins")
+title = "Predicted survival probability for women after PM"
+plot_corbes_surv(dones, "Statins", lims = c(0, 42), 
+                 title = title, cuminc = F,
+                 save = save_plots, name = "women_surv_plot")
 ```
 
 ### Homes
 
 ```{r}
 homes = aa[substr(as.character(aa$Estatines), 1, 4) == "Home", ]
-plot_corbes_surv(homes, "Estatines", lims = c(0, 42))
+homes$Estatines = factor(homes$Estatines, 
+                         levels = c("HomeSí", "HomeNo"),
+                         labels = c("Yes", "No"))
+names(homes)[2] = c("Statins")
+title = "Predicted survival probability for men after PM"
+plot_corbes_surv(homes, "Statins", lims = c(0, 42), 
+                 title = title,  cuminc = F,
+                 save = save_plots, name = "men_surv_plot")
 ```
 
 Forest plot:
@@ -399,27 +381,20 @@ cox <-
 cox_sum_table(cox)
 ```
 
-Dibuixem les corbes de supervivència:
-
-```{r}
+```{r, eval=comp}
 df$ids = 1:nrow(df)
 aa = pred_adj_curves(cox, df, ids = "ids", group = "Estatines", strata = "Sexe")
 plot_corbes_surv(aa, "Estatines", lims = c(0, 42))
 df$ids = NULL
 ```
 
-Separem entre homes i dones perquè es vegi millor (i, ja que hem estratificat els models, té més sentit):
 
-### Dones
-
-```{r}
+```{r, eval=comp}
 dones = aa[substr(as.character(aa$Estatines), 1, 4) == "Dona", ]
 plot_corbes_surv(dones, "Estatines", lims = c(0, 42))
 ```
 
-### Homes
-
-```{r}
+```{r, eval=comp}
 homes = aa[substr(as.character(aa$Estatines), 1, 4) == "Home", ]
 plot_corbes_surv(homes, "Estatines", lims = c(0, 42))
 ```
@@ -460,7 +435,7 @@ fg = finegray(
 )
 fg$`(weights)` = NULL
 cox_fg = coxph(
-  Surv(fgstart, fgstop, fgstatus) ~ . - Mort - fgwt - weights -
+  Surv(fgstart, fgstop, fgstatus) ~ . - Mort - fgwt - weights - ids -
     Sexe + strata(Sexe),
   fg,
   weights = fgwt
@@ -471,7 +446,7 @@ cox_sum_table(cox_fg)
 
 Corbes d'acumulació d'esdeveniments:
 
-```{r}
+```{r, eval=comp}
 aa = pred_adj_curves(cox_fg, fg, ids = "ids", group = "Estatines", strata = "Sexe", cuminc = T)
 plot_corbes_surv(aa, "Estatines", lims = c(0, 42))
 df$ids = NULL
@@ -483,14 +458,28 @@ Tornem a separar entre homes i dones:
 
 ```{r}
 dones = aa[substr(as.character(aa$Estatines), 1, 4) == "Dona", ]
-plot_corbes_surv(dones, "Estatines", lims = c(0, 42))
+dones$Estatines = factor(dones$Estatines, 
+                         levels = c("DonaSí", "DonaNo"),
+                         labels = c("Yes", "No"))
+names(dones)[2] = c("Statins")
+title = "Death cumulative incidence for women after PM"
+plot_corbes_surv(dones, "Statins", lims = c(0, 42), 
+                 title = title,  cuminc = F,
+                 save = save_plots, name = "women_cuminc_plot")
 ```
 
 ### Homes
 
 ```{r}
 homes = aa[substr(as.character(aa$Estatines), 1, 4) == "Home", ]
-plot_corbes_surv(homes, "Estatines", lims = c(0, 42))
+homes$Estatines = factor(homes$Estatines, 
+                         levels = c("HomeSí", "HomeNo"),
+                         labels = c("Yes", "No"))
+names(homes)[2] = c("Statins")
+title = "Death cumulative incidence for men after PM"
+plot_corbes_surv(homes, "Statins", lims = c(0, 42), 
+                 title = title,  cuminc = F,
+                 save = save_plots, name = "men_cuminc_plot")
 ```
 
 ```{r, eval=comp}
@@ -524,7 +513,7 @@ fg = finegray(
 )
 fg$`(weights)` = NULL
 cox_fg = coxph(
-  Surv(fgstart, fgstop, fgstatus) ~ . - Mort - fgwt - weights -
+  Surv(fgstart, fgstop, fgstatus) ~ . - Mort - fgwt - weights - ids -
     Sexe + strata(Sexe),
   fg,
   weights = fgwt

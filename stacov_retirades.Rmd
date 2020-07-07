@@ -46,7 +46,7 @@ tall = 42
 # Formateig
 
 ```{r}
-df = read.csv("bbdd_matched_genetic.csv")
+df = read.csv("bbdd_double_matched.csv")
 df$hospital = NULL
 df$Severitat = NULL
 df$distance = NULL
@@ -226,9 +226,9 @@ ggsurvplot(
  #  pval = TRUE,             # show p-value of log-rank test.
    conf.int = T,         # show confidence intervals for 
                             # point estimaes of survival curves.
-   xlim = c(0,100),        # present narrower X axis, but not affect
+   xlim = c(0,60),        # present narrower X axis, but not affect
                             # survival estimates.
-  ylim = c(0.,1),
+  ylim = c(0.45,1),
    break.time.by = 10,     # break X axis in time intervals by 500.
 
  ggtheme = theme_minimal(), # customize plot and risk table with a theme.
@@ -246,7 +246,7 @@ L'efecte és petit, però hi és.
 Estratifiquem per sexe.
 
 ```{r}
-tall = 100
+tall = 42
 df$esdeveniment = as.factor(ifelse(df$temps >= tall, "censura",
                                    as.character(df$esdeveniment)))
 df$esdeveniment = relevel(df$esdeveniment, "censura")
