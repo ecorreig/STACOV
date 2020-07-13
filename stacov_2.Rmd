@@ -53,7 +53,6 @@ save_plots = T
 df = read.csv("bbdd_matched_genetic_bona2.csv")
 df$Estatines = factor(df$Estatines, levels = c(0, 1), labels = c("No", "Sí"))
 df$hospital = NULL
-df$Severitat = NULL
 df$distance = NULL
 df$Ha.estat.a.la.UCI. = NULL
 df$intensitat = NULL
@@ -204,6 +203,7 @@ df$Estatines_ret = NULL
 ```
 
 ```{r}
+df$Severitat = NULL
 # Traiem totes les variables post-ingrés
 df_orig = df
 df = df[, -c(31:59)]
@@ -303,10 +303,10 @@ ggcoxdiagnostics(cox)
 
 Dibuixem les corbes de supervivència:
 
-```{r, eval=comp}
+```{r}
 df$ids = 1:nrow(df)
 aa = pred_adj_curves(cox, df, ids = "ids", group = "Estatines", strata = "Sexe")
-plot_corbes_surv(aa, "Estatines", lims = c(0, 42))
+#plot_corbes_surv(aa, "Estatines", lims = c(0, 42))
 df$ids = NULL
 ```
 
@@ -317,8 +317,8 @@ Separem entre homes i dones perquè es vegi millor (i, ja que hem estratificat e
 ```{r}
 dones = aa[substr(as.character(aa$Estatines), 1, 4) == "Dona", ]
 dones$Estatines = factor(dones$Estatines, 
-                         levels = c("DonaSí", "DonaNo"),
-                         labels = c("Yes", "No"))
+                         levels = c("DonaSí", "DonaNo", "DonaRetirades"),
+                         labels = c("Yes", "No", "Withdrawn"))
 names(dones)[2] = c("Statins")
 title = "Predicted survival probability for women after PM"
 plot_corbes_surv(dones, "Statins", lims = c(0, 42), 
@@ -335,7 +335,7 @@ homes$Estatines = factor(homes$Estatines,
                          labels = c("Yes", "No"))
 names(homes)[2] = c("Statins")
 title = "Predicted survival probability for men after PM"
-plot_corbes_surv(homes, "Statins", lims = c(0, 42), 
+plot_corbes_surv(homes, "Estatines", lims = c(0, 42), 
                  title = title,  cuminc = F,
                  save = save_plots, name = "men_surv_plot")
 ```
@@ -349,7 +349,7 @@ forest_model(
   hide_ref = T,
   recalculate_width = T,
   recalculate_height = T,
-  format_options = list(text_size = 3)
+  format_options = list(text_size = 3, shape = 18, size = 4)
 )
 ```
 
@@ -381,10 +381,10 @@ cox <-
 cox_sum_table(cox)
 ```
 
-```{r, eval=comp}
+```{r}
 df$ids = 1:nrow(df)
 aa = pred_adj_curves(cox, df, ids = "ids", group = "Estatines", strata = "Sexe")
-plot_corbes_surv(aa, "Estatines", lims = c(0, 42))
+#plot_corbes_surv(aa, "Estatines", lims = c(0, 42))
 df$ids = NULL
 ```
 
@@ -446,9 +446,9 @@ cox_sum_table(cox_fg)
 
 Corbes d'acumulació d'esdeveniments:
 
-```{r, eval=comp}
+```{r}
 aa = pred_adj_curves(cox_fg, fg, ids = "ids", group = "Estatines", strata = "Sexe", cuminc = T)
-plot_corbes_surv(aa, "Estatines", lims = c(0, 42))
+#plot_corbes_surv(aa, "Estatines", lims = c(0, 42))
 df$ids = NULL
 ```
 
@@ -525,7 +525,7 @@ cox_sum_table(cox_fg)
 ```{r}
 df$ids = 1:nrow(df)
 aa = pred_adj_curves(cox_fg, fg, ids = "ids", group = "Estatines", strata = "Sexe", cuminc = T)
-plot_corbes_surv(aa, "Estatines", lims = c(0, 42))
+#plot_corbes_surv(aa, "Estatines", lims = c(0, 42))
 df$ids = NULL
 ```
 
