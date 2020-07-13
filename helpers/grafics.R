@@ -1,5 +1,6 @@
 # Plots
-
+library(ggthemes)
+library(ggsci)
 
 stacked_bar_plot <- function(df, save=F) {
   # This is not a proper function, only works for the case in use, but I wanted to get
