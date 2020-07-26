@@ -1,0 +1,25 @@
+---
+title: "stacov_secundari"
+author: "Eudald Correig"
+date: "23/6/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F)
+library(Hmisc)
+```
+
+```{r}
+df = read.csv("bbdd_neta.csv")
+df$hospital = as.factor(df$hospital)
+df$Mort = relevel(df$Mort, "No")
+df$Severitat = factor(df$Severitat, levels = c("Mild", "Severe", "Death"))
+```
+
+# Descriptiu de comprovació
+
+```{r}
+describe(df)
+```
+

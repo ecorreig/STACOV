@@ -1,0 +1,210 @@
+---
+title: "Models"
+author: "Eudald Correig"
+date: "11/6/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+source("lasso.R", encoding = "UTF-8")
+source("corbes_roc.R", encoding = "UTF-8")
+library(ggmosaic)
+library(cvAUC)
+library(dplyr)
+library(healthcareai)
+library(questionr)
+set.seed(1506)
+```
+
+```{r}
+df = read.csv("bbdd_matched_genetic.csv")
+df$hospital = NULL
+# df$Estatines = factor(df$Estatines, levels = c(0, 1), labels = c("No", "Sí"))
+df$Severitat = factor(df$Severitat, levels = c("Mild", "Severe", "Death"))
+```
+
+```{r}
+df$distance = NULL
+df$subclass = NULL
+# df$weights = NULL
+df$Ha.estat.a.la.UCI. = NULL
+```
+
+Traiem les resines i l'omacor perquè tenen massa poca variabilitat
+
+```{r}
+df$Resines = NULL
+df$Omacor..1g = NULL
+```
+
+
+# Model bàsic
+
+Regressió logística bàsica
+
+```{r}
+mod = glm(Mort ~ . + Sexe * Estatines - weights, df[, c(1:30, 60, 62)], 
+          family = "binomial",
+          weights = weights)
+summary(mod)
+
+modest = glm(Mort ~ Estatines, df, family = "binomial", weights = weights)
+summary(modest)
+```
+
+```{r}
+tt = wtd.table(df$Estatines, df$Mort, df$weights)
+tt
+chisq.test(tt) 
+```
+
+```{r}
+CrossTable(tt, chisq = T, fisher = T)
+```
+
+
+Veiem, efectivament, que les estatines són significatives i tenen un coeficient negatiu, així que, am és estatines, menys mort. 
+
+# Regressió logística regularitzada i cross-validada
+
+A continuació fem alguns models una mica més elaborats. En aquest apartat fem una regressió logísica que utilitza regularitzacció d'"elastic net" per tal d'intentar eliminar totes aquelles variables que no aportin res al model. Aquí no parlem de variables significatives o no, si no que totes les que apareguin en el model final considerem que són predictores (que seria equivalent al significatives d'abans).
+
+A més, en aquests models també creem un conjunt d'entrenament i un conjunt de validació per tal de tenir una evaluació del model el més acurada possible. 
+
+```{r}
+# Estandaritzem les variables contínues
+df[, -ncol(df)] = df[, -ncol(df)] %>%
+  mutate_if(is.numeric, scale)
+```
+
+```{r}
+train = sample(1:nrow(df), round(nrow(df)/5*4))
+test = -train
+mod = logistic_EN(df[, c(1:44, 60, 62)], train=train, y_name = "Mort", 
+                  plots = F, lambda = "min", weights = T)
+
+```
+
+Els coeficients del model són:
+
+```{r}
+mod$Coeficients
+```
+
+Veiem que aquí les estatines també hi són i amb un coeficient negatiu, així que confirmem que són protectores.
+
+L'encert predictiu del model és:
+
+```{r}
+mod$Encert
+```
+
+I la taula de contingència és:
+
+```{r}
+preds = ifelse(mod$Prediccions >= .5, "Sí", "No")
+ttt = table(preds, df$Mort[test])
+ttt
+```
+
+Dibuixem la corba ROC:
+
+```{r}
+y = ifelse(df$Mort == "No", 0, 1)
+preroc = cbind(y[test], mod$Prediccions)
+preroc=as.data.frame(preroc)
+#preroc[,1]=preroc[,1]-1
+preroc[,1]=as.factor(preroc[,1])
+colnames(preroc)=c('survived', 'pred')
+
+roc4=calculate_roc(preroc, 1, 1, n = 100)
+```
+
+```{r, echo=FALSE}
+plot_roc(roc4, 0.5, 1, 1)
+```
+
+L'àrea sota la corba és:
+
+```{r, echo=FALSE}
+cvroc=ci.cvAUC(preroc$pred,preroc$survived)
+```
+
+L'àrea sota la corba és `r cvroc$cvAUC` and interval de confiança `r cvroc$ci`.
+
+# Models Random Forest
+
+```{r}
+library(ranger)
+rf = ranger(Estatines ~ ., 
+            data = df[, c(1:30, 60)], 
+            case.weights = df$weights, 
+            importance = "impurity_corrected", 
+            sample.fraction = 1
+            )
+rf$variable.importance
+```
+
+
+# Models boosted
+
+```{r}
+library(gbm)
+df$Estatines = ifelse(df$Estatines == "No", 0, 1)
+bm = gbm(Estatines ~ ., data = df[, c(1:30, 60)], weights = df$weights, n.trees = 5000)
+summary(bm)
+```
+
+
+# Models Machine learning
+
+A continuació fem models basats en arbres, per veure si encara podem millorar la predicció i per entendre millor quin paper juguen les estatines. Farem 100 models iguals que els d'abans (regressions logístiques regularitzades) per confirmar, 50 "random forest" i 50 models "boosted" i evaluarem sobre el millor d'aquests:
+
+```{r}
+models = machine_learn(df[, c(1:30, 60)], 
+                       outcome = Mort, 
+                       positive_class = "Sí",
+                       models = c("rf", "glm")
+                       )
+models
+```
+
+Aquí veiem que el millor model és de random forest, amb una AUC de .88.
+
+Fem gràfics per entendre'l millor:
+
+```{r}
+predictions <- predict(models, outcome_groups = TRUE)
+plot(predictions)
+```
+
+Veiem que la nostra capacitat per separar els que moriran dels que no és força bona. 
+
+La matriu de contingència és:
+
+```{r}
+tt = table(predictions$Mort, ifelse(predictions$predicted_Mort >= .5, "No", "Sí"))
+encert = (tt[1] + tt[4])/sum(tt)
+tt
+```
+
+L'encert és `r round(encert, 4)*100`%.
+
+Fem un gràfic dels coeficients de cada variable:
+
+```{r, fig.height=10}
+interpret(models) %>% 
+  plot()
+```
+
+I, igual que abans, les estatines tenen un coeficient negatiu, així que fantàstic! Alerta amb aquest gràfic, perquè algunes variables estan girades (i la llibreria no me les deix canviar, he d'investigar), per exemple, la hidroxicloroquina el coeficient és positiu, però perquè és "No" comparat amb "Sí", per tant diríem que no prendre cloroquina augmenta el risc de mort. 
+
+Ara mirem l'influència de cada una de les variables:
+
+```{r, fig.height=10}
+get_variable_importance(models) %>%
+  plot()
+```
+
+Veiem que les estatines no estan entre les més altes, però són allà.

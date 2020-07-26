@@ -1,0 +1,559 @@
+---
+title: "Neteja bbdd"
+author: "Eudald Correig"
+date: "3/6/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readxl)
+library(dplyr)
+library(missForest)
+library(xray)
+```
+
+```{r}
+dir_ = "helpers"
+source(file.path(dir_, "helpers.R"), encoding = "UTF-8")
+```
+
+```{r}
+set.seed(206)
+```
+
+
+```{r}
+# Improt the first "mock" db
+df = read_excel("XULA_18.05.20_Base de dades STACOV.xlsx", sheet = 2, col_types = "text")
+df = df[, 1:89]
+df$hospital = ""
+df = df[complete.cases(df), ]
+
+# improtem tots els excels
+dir = "data"
+files = list.files("data")
+for (file in files) {
+  # Importem el fitxer
+  temp = import_excel(file_name = file)
+  # Afegim una columna amb el codi de l'hospital
+  temp$hospital = as.character(substr(file, 1, 2))
+  # Corregim en cas de que hi hagi algun nom mal escrit
+  names(temp) = names(df)
+  # Ajuntem amb la resta
+  df = bind_rows(df, temp)
+  df$hospital = as.character(df$hospital)
+  
+  # log
+  print(paste0("Imported file ", file, " with ", nrow(temp), " observations."))
+}
+nc = ncol(df)
+df = df[, c(nc, 1:(nc - 1))]
+# openxlsx::write.xlsx(df, "bbdd_juntes.xlsx", row.names = F)
+```
+
+Traiem les 2 persones de les quals no tenim el valor de covid:
+
+```{r}
+quins = which(is.na(df$`COVID-19 OMS INDEX`))
+df$`Identificació pacient`[quins]
+df = df[-quins, ]
+```
+
+Traiem 10 pacients que tenen menys d'un dia d'estada:
+
+```{r}
+fora = c("10-107", "13-129", "13-197", "19-022")
+df = df[-which(df$`Identificació pacient` %in% fora), ]
+```
+
+
+Tenim `r nrow(df)` observacions.
+
+```{r}
+# categories reutilitzables
+nos = c("NO", "No", "no", "NON", "0", "N", "nO", "NIO", "NJO")
+no = "No"
+sis = c("SI", "SÍ", "Sí", "Si", "sí", "si", "DI", "s", "sÍ", "S")
+si = "Sí"
+nd = c("No disponible", "no disponible", "ND", "nd", "Desconegut", "n")
+```
+
+```{r}
+# variables que no volem
+ids = df$`Identificació pacient`
+df$`Identificació pacient` = NULL
+df$NHC = NULL
+df$`Any naixement` = NULL
+data_covid = df$`Data Covid 19 + (dia/mes/any)`
+df$`Data Covid 19 + (dia/mes/any)` = NULL
+data_alta = df$`Data alta (Dia/Mes/Any)`
+df$`Data alta (Dia/Mes/Any)` = NULL
+data_ingres = df$`Data Ingrès (dia/mes/any)`
+df$`Data Ingrès (dia/mes/any)` = NULL
+```
+
+
+```{r}
+# variablers contínues
+df$Edat = safe_numeric(df$Edat)
+df$`Pes (Kg)` = safe_numeric(df$`Pes (Kg)`)
+df$`Talla (m)` = safe_numeric(df$`Talla (m)`)
+df$`Estatina (mg/dia)` = safe_numeric(df$`Estatina (mg/dia)`)
+df$`CT  abans ingrès` = safe_numeric(df$`CT  abans ingrès`)
+df$`HDL  abans ingrès` = safe_numeric(df$`HDL  abans ingrès`)
+df$`LDL  abans ingrès` = safe_numeric(df$`LDL  abans ingrès`)
+df$`TG abans ingrès` = safe_numeric(df$`TG abans ingrès`)
+df$`Lp(a)` = safe_numeric(df$`Lp(a)`)
+df$`Nº dies de UCI` = safe_numeric(df$`Nº dies de UCI`)
+df$`CT durant ingrès` = safe_numeric(df$`CT durant ingrès`)
+df$`HDL durant ingrès` = safe_numeric(df$`HDL durant ingrès`)
+df$`LDL durant ingrès` = safe_numeric(df$`LDL durant ingrès`)
+df$`TG durant ingrès` = safe_numeric(df$`TG durant ingrès`)
+df$`Leucos totals` = safe_numeric(df$`Leucos totals`)
+df$`Limfos totals` = safe_numeric(df$`Limfos totals`)
+df$Hb = safe_numeric(df$Hb)
+df$Plaquetes = safe_numeric(df$Plaquetes)
+df$Ferritina = safe_numeric(df$Ferritina)
+df$PCR = safe_numeric(df$PCR)
+df$`Dímer D` = safe_numeric(df$`Dímer D`)
+df$IL6 = safe_numeric(df$IL6)
+df$`Troponina I` = safe_numeric(df$`Troponina I`)
+df$`pro-BNP` = safe_numeric(df$`pro-BNP`)
+df$`Sa O2` = safe_numeric(df$`Sa O2`)
+df$`PaO2 (mmHg)` = safe_numeric(df$`PaO2 (mmHg)`)
+df$`FIO2 (decimals)` = safe_numeric(df$`FIO2 (decimals)`)
+df$PaFi = safe_numeric(df$PaFi)
+df$CURB = safe_numeric(df$CURB)
+```
+
+```{r}
+# sexe
+temp = treat_factors(df$Sexe, c("Home", "home", "1"), "Home")
+df$Sexe = treat_factors(temp, c("Dona", "dona", "2"), "Dona")
+```
+
+```{r}
+# tabac
+fumador = c(sis, "Fumador", "fumador")
+nofumador = c(nos, "No fumador", "no fumador", "No fuamdor", "Nofumador")
+exfumador = c("Exfumador", "exfumador", "EXFUMADOR", "Exfumador ", "EX")
+temp = treat_factors(df$Tabac, nofumador, no)
+temp = treat_factors(temp, fumador, si)
+temp = treat_factors(temp, nd, NA)
+df$Tabac = treat_factors(temp, exfumador, "Exfumador")
+df$Tabac = relevel(df$Tabac, no)
+```
+
+```{r}
+# tipus estatina
+temp = treat_factors(df$`Tipus Estatina`, nos, no)
+temp = treat_factors(temp, nd, NA)
+temp = treat_factors(temp, c("ATORVA", "atorvastatina"), "Atorvastatina")
+temp = treat_factors(temp, c("pravastatina"), "Pravastatina")
+temp = treat_factors(temp, c("ROSU", "rosuvastina", "Rosuvastina"), "Rosuvastatina")
+temp = treat_factors(temp, c("SIMVA", "simvastatina"), "Simvastatina")
+# NOTA: poso la Fluvastatina a "Altres" perquè només n'hi ha una
+# TODO: pensar si fer el mateix amb la pravastatina
+temp = treat_factors(temp, c("altres", "Fluvastatina"), "Altres")
+
+df$`Tipus Estatina` = temp
+```
+
+```{r}
+# retirada estatines
+# NOTA: poso el "canvi a estatina compatible" com a "NO"
+noestatines = c(nos, "No retirada en les 48h", "no retirada en les 48h", "Canvi a estatina compatible")
+siestatines = c(sis, "Retirada abans 48h", "retirada", "retirada abans 48h")
+temp = treat_factors(df$`Retirada d'estatines al ingrès?`, noestatines, no)
+temp = treat_factors(temp, siestatines, si)
+df$`Retirada d'estatines al ingrès?` = treat_factors(temp, nd, NA)
+```
+
+```{r}
+# motiu retirada estatines
+temp = treat_factors(df$`Motiu retirada estatines`, nos, no)
+temp = treat_factors(temp, c("canvi a estatina compatible"), "Canvi a estatina compatible")
+temp = treat_factors(temp, c("toxicitat hepatica"), "Toxicitat")
+df$`Motiu retirada estatines` = treat_factors(temp, nd, NA)
+```
+
+```{r}
+# capses d'estatines retirades
+# ALERTA: Aquesta variable és una festa; per ara la deixo tranquil·la
+# FIXME!!
+temp = treat_factors(df$`Capses d'estatines retirades darrers 6m`, nos, no)
+temp = treat_factors(temp, nd, NA)
+temp = as.character(temp)
+# temp[temp != "No"] = "Sí"
+df$`Capses d'estatines retirades darrers 6m` = treat_factors(temp, sis, si)
+```
+
+```{r}
+# Antiagregants.Anticoagulants
+antiagregants = c("antiagregants", "SI (ANTIAGREGANTS)", "Antiagregant")
+anticoagulants = c("ACO (WARFARINA)", "Altra coagulació", "NACO", "Anticoagulants")
+sintrom = c("sintrom", "SINTROM")
+aano = c(nos, "No en pren", "No en pren ", "no en pren", "NO en pren")
+# NOTA: estic assumint que sí i profilaxis vol dir tots dos
+tots = c("Antiagregant + NACO", "Antiagregants/Anticoagulants", "SI", "Profilaxis")
+
+temp = treat_factors(df$`Antiagregants/Anticoagulants`, antiagregants, "Antiagregants")
+temp = treat_factors(temp, anticoagulants, "NACOs")
+temp = treat_factors(temp, sintrom, "Sintrom")
+temp = treat_factors(temp, tots, "Antiagregants+Anticoagulant")
+# NOTA: posem a+a a anticoagulant
+temp = treat_factors(temp, "Antiagregants+Anticoagulant", "NACOs")
+temp = treat_factors(temp, nd, NA)
+df$`Antiagregants/Anticoagulants` = treat_factors(temp, aano, no)
+```
+
+```{r}
+# rx tòrax
+# ALERTA: no sé què fer amb els "Sí"
+bilateral = c("Afectació bilateral", "afectación bilateral", "alteració bilateral", "Alteració Bilateral",
+              "BILATERAL", "infiltrado bilateral", "INFILTRADO BILATERAL", "pn bilateral", "Pn bilateral",
+              "Pn Bilateral")
+unilateral = c("afectación unilateral", "alteració unilateral", 
+               "Pn unilateral", "INFILITRADO UNILATERAL", "UNILATERAL")
+normal = c(nos, "NORMAL", "normal")
+temp = treat_factors(df$`RX tòrax`, bilateral, "Alteració bilateral")
+temp = treat_factors(temp, unilateral, "Alteració unilateral")
+temp = treat_factors(temp, sis, si)
+temp = treat_factors(temp, normal, "Normal")
+df$`RX tòrax` = treat_factors(temp, nd, NA)
+```
+
+```{r}
+# Deixem en "sí" o "no"
+temp = treat_factors(df$`Anti retroviral`, nos, no)
+arsis = c(sis, "lopi/Rito", "Lopi/rito", "Lopi/Rito", "altres", "Altres")
+temp = treat_factors(temp, arsis, si)
+df$`Anti retroviral` = treat_factors(temp, nd, NA)
+```
+
+```{r}
+# NOTA: poso (antiagregants), DOSIS DESCOAGULANTES, DOSIS PROFILÁCTICAS a altres
+altra = c("altra coagulació", "(antiagregants)", "DOSIS DESCOAGULANTES")
+heparina_plena = c("Dosis plenes", "Heparina a dosi plena", "heparina dosi plena", "Heparina dosis plena")
+heparina_intermitja = c("DOSIS INTERMEDIAS", "heparina dosis intermija", "Heparina dosis intermitja")
+profilaxi = c("DOSIS PROFILÁCTICAS", "profilaxi", "Profilaxis")
+temp = treat_factors(df$`Anticoagulants tto COVID`, altra, "Altra coagulació")
+temp = treat_factors(temp, heparina_plena, "Heparina dosi plena")
+temp = treat_factors(temp, heparina_intermitja, "Heparina dosi intermitja")
+temp = treat_factors(temp, profilaxi, "Profilaxi")
+temp = treat_factors(temp, sis, si)
+# NOTA: segons la reunió de l'11 de juny, posem "sí" a "altres"
+temp = treat_factors(temp, "Sí", "Altra coagulació")
+temp = treat_factors(temp, nos, no)
+df$`Anticoagulants tto COVID` = treat_factors(temp, nd, NA)
+```
+
+```{r}
+# Altres trac. DM
+# posem a sí o no
+df$`Altres trac. DM` = treat_factors(df$`Altres trac. DM`, nos, no)
+df$`Altres trac. DM`[df$`Altres trac. DM` != no] = si
+df$`Altres trac. DM` = as.factor(as.character(df$`Altres trac. DM`))
+```
+
+```{r}
+# sdra
+df$SDRA[df$SDRA == "SDRA"] = "Sí"
+# shock
+df$Shock[df$Shock == "Shock"] = "Sí"
+```
+
+
+```{r}
+df = as.data.frame(df)
+# variables de sí i no
+sinos = c("HTA", "Hiperlipemia", "Diabetes", "Obesitat", "FH", "Ant CI", "Ant Ictus", "Ant MVP", "Ant Ins Card",
+          "Ant MPOC/Asma", "Ant MHepC", "Ant MRC", "Ant MReu", "Càncer", "Estatines", "Ezetimiba", "iPCKS9",
+          "Fibrat", "Resines", "Omacor >1g", "IECA", "ARA2", "Insulina", "ISGLT2", "GLP1", 
+          "Ha estat a la UCI?", "Febre", "Tos", "Dispnea", "Shock", "SDRA", "CID", "Ins  Renal aguda", 
+          "Ins Hepat", "VMNI/UN alt flux", "VM-IOT", "OH/Cloroquina", "Antibiòtics", "Cortis", 
+          "Immunomoduladors", "ImGlobulines")
+
+for (var in sinos) {
+  temp = treat_factors(df[, var], nos, no)
+  temp = treat_factors(temp, sis, si)
+  df[, var] = treat_factors(temp, nd, NA)
+}
+```
+
+```{r}
+# traiem les variables ISGLT2 i GLP1 perquè hi ha massa pocs positius
+df$FH = NULL
+df$iPCKS9 = NULL
+```
+
+```{r}
+# les següents variables, els missings són no:
+# Ezetimiba	Fibrat	Resines	Omacor >1g
+# IECA	ARA2	Insulina	ISGLT2	GLP1	Altres trac. DM
+df$Ezetimiba = missing_to_no(df$Ezetimiba)
+df$Fibrat = missing_to_no(df$Fibrat)
+df$Resines = missing_to_no(df$Resines)
+df$`Omacor >1g` = missing_to_no(df$`Omacor >1g`)
+df$IECA = missing_to_no(df$IECA)
+df$ARA2 = missing_to_no(df$ARA2)
+df$Insulina = missing_to_no(df$Insulina)
+df$ISGLT2 = missing_to_no(df$ISGLT2)
+df$GLP1 = missing_to_no(df$GLP1)
+df$`Altres trac. DM` = missing_to_no(df$`Altres trac. DM`)
+df$`Anti retroviral` = missing_to_no(df$`Anti retroviral`)
+```
+
+
+Describim els missings
+
+```{r}
+anomalies(df)
+```
+
+Traiem les següents variables, que tenen massa missings:
+
+Lp(a), LDL durant ingrès, HDL durant ingrès, pro-BNP, CURB, IL6, TG durant ingrès, CT durant ingrès
+
+```{r}
+df$`Lp(a)` = NULL
+df$`LDL durant ingrès` = NULL
+df$`HDL durant ingrès` = NULL
+df$`pro-BNP` = NULL
+df$CURB = NULL
+df$IL6 = NULL
+df$`TG durant ingrès` = NULL
+df$`CT durant ingrès` = NULL
+```
+
+
+Altres variables que potser reintroduïrem en un futur:
+Talla (m), Troponina I, Pes (Kg), Plaquetes, Hb
+
+```{r}
+df$`Talla (m)` = NULL
+df$`Troponina I` = NULL
+df$`Pes (Kg)` = NULL
+df$Plaquetes = NULL
+df$Hb = NULL
+```
+
+Arreglem la variable FiO2, passant-la a decimals:
+
+```{r}
+quins = which(df$`FIO2 (decimals)` > 1.1)
+df$`FIO2 (decimals)`[quins] = df$`FIO2 (decimals)`[quins] / 100
+```
+
+La variable PAFI s'ha de recalcular (PaO2/FiO2)
+
+```{r}
+df$PaFi = df$`PaO2 (mmHg)` / df$`FIO2 (decimals)`
+```
+
+
+La variable Ins Resp s'ha d'ajuntar amb PaO2:
+
+```{r}
+temp = ifelse(!is.na(df$`PaO2 (mmHg)`), 
+                              ifelse(df$`PaO2 (mmHg)` < 60, "Sí", "No"), 
+                       df$`Ins Resp`)
+temp = treat_factors(temp, nos, no)
+df$`Ins Resp` = treat_factors(temp, sis, si)
+```
+
+Retirada d'estatines a l'ingrés, hi ha alguns números estranys, ho poso a missing:
+
+```{r}
+df$`Retirada d'estatines al ingrès?`[df$`Retirada d'estatines al ingrès?` %in% 
+                                       levels(df$`Retirada d'estatines al ingrès?`)[1:3]] = NA
+df$`Retirada d'estatines al ingrès?` = as.factor(as.character(df$`Retirada d'estatines al ingrès?`))
+df$Estatines_ret = as.factor(ifelse(df$Estatines == "No", "No", 
+                          ifelse(df$`Retirada d'estatines al ingrès?` == "Sí", "Retirades", "Sí")))
+```
+
+```{r}
+tt = table(df$Estatines_ret, 
+      df$`Anti retroviral`, 
+      dnn = c("Estatines", "Anti retrovirals"))
+CrossTable(tt, chisq = T)
+```
+
+
+Quantitat d'estatina
+
+```{r}
+alta_rosu = (df$`Tipus Estatina` == "Rosuvastatina" & df$`Estatina (mg/dia)`  >= 10)
+alta_atorva = (df$`Tipus Estatina` == "Atorvastatina" & df$`Estatina (mg/dia)`  >= 40)
+
+df$intensitat = as.factor(ifelse(df$Estatines == "Sí",
+                       ifelse((alta_rosu | alta_atorva), "alta", "baixa"), "no"))
+```
+
+
+```{r}
+
+df$`Tipus Estatina` = NULL
+df$`Estatina (mg/dia)` = NULL
+df$`Retirada d'estatines al ingrès?` = NULL
+df$`Motiu retirada estatines` = NULL
+df$`Capses d'estatines retirades darrers 6m` = NULL
+```
+
+Traiem també el número de dies a la UCI perquè per ara no ens interessa.
+
+```{r}
+df$`Nº dies de UCI` = NULL
+```
+
+Arreglem els colesterols, eliminant valors impossibles i convertint els colesterols que estan en mg/dl a mmol/l:
+
+Triaiem TG, LDL, HDL, CT de més de 20000 mg/dl
+
+```{r}
+df$`CT  abans ingrès`[df$`CT  abans ingrès` > 20000] = NA
+df$`TG abans ingrès`[df$`TG abans ingrès` > 20000] = NA
+df$`LDL  abans ingrès`[df$`LDL  abans ingrès` > 20000] = NA
+df$`HDL  abans ingrès`[df$`HDL  abans ingrès` > 20000] = NA
+
+```
+
+```{r}
+quins = which(df$`CT  abans ingrès` > 15)
+df$`CT  abans ingrès`[quins] = df$`CT  abans ingrès`[quins] / 38.67
+quins = which(df$`TG abans ingrès` > 20)
+df$`TG abans ingrès`[quins] = df$`TG abans ingrès`[quins] / 38.67
+df$`TG abans ingrès`[df$`TG abans ingrès` > 20] = NA
+quins = which(df$`LDL  abans ingrès` > 15)
+df$`LDL  abans ingrès`[quins] = df$`LDL  abans ingrès`[quins] / 38.67
+quins = which(df$`HDL  abans ingrès` > 15)
+df$`HDL  abans ingrès`[quins] = df$`HDL  abans ingrès`[quins] / 38.67
+df$`HDL  abans ingrès`[df$`HDL  abans ingrès` > 10] = NA
+```
+
+Traiem també alguns valors que són massa petits:
+
+```{r}
+df$`CT  abans ingrès`[df$`CT  abans ingrès` < 1] = NA
+```
+
+
+Hi ha una saturació d'oxígen decimal, la multiplico per 100:
+
+```{r}
+quins = which(df$`Sa O2` < 10)
+df$`Sa O2`[quins] = df$`Sa O2`[quins] * 100
+```
+
+També n'hi ha una que és 24; l'elimino:
+
+```{r}
+df$`Sa O2`[df$`Sa O2` == 24] = NA
+```
+
+
+Reanomeno les variables COVID perquè tenen noms massa llargs i les taules no es veuran bé; deixo només l'score
+
+```{r}
+s0 = "(Score 0) Uninfected_no clinical or virological evidence of infection"
+temp = treat_factors(df$`COVID-19 OMS INDEX`, s0, "S0")
+s2 = "(Score 2) Ambulatory_ limitation of ativities"
+temp = treat_factors(temp, s2, "S2")
+s3 = c("(Score 3) Hospitalized/mild disease_ Hospitalized, no oxygen therapy", "3")
+temp = treat_factors(temp, s3, "S3")
+s4 = c("(Score 4) Hospitalized mild disease_ Oxygen by mask or nasal prongs", "4")
+temp = treat_factors(temp, s4, "S4")
+s5 = c("(Score 5) Hospitalised/severe disease non invasive ventilation or high-flow oxygen", "5",
+                     "(Score 5) Hospitalized/severe disease_ Non-invasive ventilation orhigh-flow oxygen")
+temp = treat_factors(temp, s5, "S5")
+s6 = c("(Score 6) Hospitalized/severe disease_ Intubation and mechanical ventilation", "6")
+temp = treat_factors(temp, s6, "S6")
+s7 = c("(Score 7) Hospitalized/severe disease_ Ventilation + additional organ suport– pressors, RRT, ECMO", 
+       "7",
+       "(Score 7) Hospitalized/severe disease_ Ventilation + additional organ suport- pressors, RRT, ECMO")
+temp = treat_factors(temp, s7, "S7")
+s8 = c("(Score 8)Death", "(Score 8) Death", 8)
+temp = treat_factors(temp, s8, "S8")
+df$`COVID-19 OMS INDEX` = temp
+```
+
+
+Creem dues variables relacionades amb el covid, Mort i Severitat:
+
+```{r}
+df$Mort = as.factor(ifelse(df$`COVID-19 OMS INDEX` == "S8", "Sí", "No"))
+a = df$`COVID-19 OMS INDEX`
+df$Severitat = as.factor(ifelse((a == "S3" | a == "S4"), "Mild", 
+                                ifelse(a == "S8", "Death", "Severe")))
+df$Severitat = factor(df$Severitat, levels = levels(df$Severitat)[c(2, 3, 1)])
+```
+
+
+
+Hi ha un Pa02=0.28, ha de ser un error i el poso a missing
+```{r}
+df$`PaO2 (mmHg)`[df$`PaO2 (mmHg)` == min(df$`PaO2 (mmHg)`, na.rm = T)] = NA
+```
+
+Traiem un Dímer D un ordre de magnitud massa gran:
+
+```{r}
+df$`Dímer D`[df$`Dímer D` > 50000] = NA
+```
+
+Traiem un PCR de gairebé 50000:
+
+```{r}
+df$PCR[df$PCR > 10000] = NA
+```
+
+Traiem una ferritina de 700000:
+
+```{r}
+df$Ferritina[df$Ferritina > 10000] = NA
+```
+
+Traiem uns limfos més grans de 40.000:
+
+```{r}
+df$`Limfos totals`[df$`Limfos totals` > 10000] = NA
+```
+
+Traiem uns leicos més grans de 50000:
+
+```{r}
+df$`Leucos totals`[df$`Leucos totals` > 50000] = NA
+```
+
+Explorem les variables conínues
+
+```{r}
+for (i in 1:ncol(df)) {
+  if (is.numeric(df[, i])) {
+    hist(df[, i], main = names(df)[i], breaks = 30)
+  }
+}
+```
+
+Variables que necessiten logaritme: FiO2, Pa02, Dímer D, PCR, Ferritina, Limfos, Leucos, lípids
+
+Imputem els missings
+
+```{r, eval=T}
+df$hospital = as.factor(df$hospital)
+aa = missForest(df)
+dfi = aa$ximp
+```
+
+```{r, eval=T}
+write.csv(dfi, "bbdd_neta.csv", row.names=F)
+```
+
+Faig una segona versió amb les dates
+
+```{r, eval=T}
+dff = cbind.data.frame(dfi, ids, data_covid, data_ingres, data_alta)
+write.csv(dff, "bbdd_dates.csv", row.names = F)
+```
+

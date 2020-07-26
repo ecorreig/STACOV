@@ -1,0 +1,587 @@
+---
+title: "Estudi descriptiu - Mort sí o no"
+author: "Eudald Correig"
+date: "11/6/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+library(compareGroups)
+library(gmodels)
+library(ggmosaic)
+source("grafics.R", encoding = "UTF-8")
+```
+
+```{r}
+df = read.csv("bbdd_neta.csv")
+df$hospital = as.factor(df$hospital)
+df$Mort = relevel(df$Mort, "No")
+df$Severitat = factor(df$Severitat, levels = c("Mild", "Severe", "Death"))
+```
+
+```{r}
+df$distance = NULL
+df$weights = NULL
+df$subclass = NULL
+```
+
+# Estatines sí/no
+
+```{r}
+res = compareGroups(Estatines ~ ., df[, -1], method = NA)
+restab = createTable(res, show.all = T)
+export2md(restab, strip = T, first.strip = T)
+```
+
+
+# Mort Sí/No
+
+## Base de dades original
+
+
+```{r}
+res = compareGroups(Mort ~ ., df[, -1], method = NA)
+restab = createTable(res, show.all = T)
+export2md(restab, strip = T, first.strip = T)
+```
+
+```{r}
+CrossTable(df$Estatines, df$Mort, chisq = T)
+```
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, Estatines), fill = Mort)) + 
+  xlab("Estatines") + 
+  ylab("Mort") + 
+  theme_bw()
+```
+
+# Visualitzacions
+
+Dibuixo les variables significatives i la seva relació amb les estatines
+
+## Edat
+
+```{r}
+diag_caixes(df, "Edat")
+```
+
+Aquí veiem que la conjunció ser gran + no portar estatines és especialment dolenta.
+
+## HTA
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, HTA), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("HTA") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## Hiperlipèmia
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, Hiperlipemia), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("Hiperlipèmia") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## Ant.MVP
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, Ant.MVP), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("Ant.MVP") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## Ant.Ins.Card
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, Ant.Ins.Card), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("Ant.Ins.Card") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## Ant.MPOC.Asma
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, Ant.MPOC.Asma), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("Ant.MPOC.Asma") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## Ant.MRC
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, Ant.MRC), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("Ant.MRC") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## Càncer
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, Càncer), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("Càncer") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## Omacor..1g
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, Omacor..1g), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("Omacor..1g") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## Insulina
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, Insulina), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("Insulina") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## Antiagregants.Anticoagulants
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, Antiagregants.Anticoagulants), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("Antiagregants.Anticoagulants") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## CT..abans.ingrès
+
+```{r}
+diag_caixes(df, "CT..abans.ingrès")
+```
+
+## HDL..abans.ingrès
+
+```{r}
+diag_caixes(df, "HDL..abans.ingrès")
+```
+
+## LDL..abans.ingrès
+
+```{r}
+diag_caixes(df, "LDL..abans.ingrès")
+```
+
+## Dispnea
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, Dispnea), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("Dispnea") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## RX.tòrax
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, RX.tòrax), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("RX.tòrax") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## Leucos.totals
+
+```{r}
+diag_caixes(df, "Leucos.totals")
+```
+
+## Ferritina
+
+```{r}
+diag_caixes(df, "Ferritina")
+```
+
+## Dímer.D
+
+```{r}
+diag_caixes(df, "Dímer.D")
+```
+
+## Ins.Resp
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, Ins.Resp), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("Ins.Resp") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## Sa.O2
+
+```{r}
+diag_caixes(df, "Sa.O2")
+```
+
+## PaO2..mmHg.
+
+```{r}
+diag_caixes(df, "PaO2..mmHg.")
+```
+
+## FIO2..decimals.
+
+```{r}
+diag_caixes(df, "FIO2..decimals.")
+```
+
+## PaFi
+
+```{r}
+diag_caixes(df, "PaFi")
+```
+
+## Shock
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, Shock), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("Shock") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## SDRA
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, SDRA), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("SDRA") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## CID
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, CID), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("CID") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## Ins..Renal.aguda
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, Ins..Renal.aguda), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("Ins..Renal.aguda") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## VMNI.UN.alt.flux
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, VMNI.UN.alt.flux), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("VMNI.UN.alt.flux") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## VM.IOT
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, VM.IOT), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("VM.IOT") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## OH.Cloroquina
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, OH.Cloroquina), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("OH.Cloroquina") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## Anti.retroviral
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, Anti.retroviral), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("Anti.retroviral") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## Anticoagulants.tto.COVID
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, Anticoagulants.tto.COVID), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("Anticoagulants.tto.COVID") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## Base de dades "matxejada"
+
+```{r}
+df = read.csv("bbdd_optimal.csv")
+df$hospital = as.factor(df$hospital)
+df$Estatines = factor(df$Estatines, levels = c(0, 1), labels = c("No", "Sí"))
+df$Severitat = factor(df$Severitat, levels = c("Mild", "Severe", "Death"))
+```
+
+```{r}
+df$distance = NULL
+df$weights = NULL
+df$subclass = NULL
+```
+
+```{r}
+res = compareGroups(Mort ~ ., df[, -1], method = NA)
+restab = createTable(res, show.all = T)
+export2md(restab, strip = T, first.strip = T)
+```
+
+```{r}
+CrossTable(df$Estatines, df$Mort, chisq = T)
+```
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, Estatines), fill = Mort)) + 
+  xlab("Estatines") + 
+  ylab("Mort") + 
+  theme_bw()
+```
+
+# Visualitzacions
+
+Dibuixo les variables significatives i la seva relació amb les estatines
+
+## Edat
+
+```{r}
+diag_caixes(df, "Edat")
+```
+
+Aquí veiem que la conjunció ser gran + no portar estatines és especialment dolenta.
+
+## Ant.Ins.Card
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, Ant.Ins.Card), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("Ant.Ins.Card") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## Càncer
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, Càncer), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("Càncer") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## Omacor..1g
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, Omacor..1g), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("Omacor..1g") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## CT..abans.ingrès
+
+```{r}
+diag_caixes(df, "CT..abans.ingrès")
+```
+
+## LDL..abans.ingrès
+
+```{r}
+diag_caixes(df, "LDL..abans.ingrès")
+```
+
+## RX.tòrax
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, RX.tòrax), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("RX.tòrax") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## Leucos.totals
+
+```{r}
+diag_caixes(df, "Leucos.totals")
+```
+
+## Ferritina
+
+```{r}
+diag_caixes(df, "Ferritina")
+```
+
+## Ins.Resp
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, Ins.Resp), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("Ins.Resp") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## Sa.O2
+
+```{r}
+diag_caixes(df, "Sa.O2")
+```
+
+## PaO2..mmHg.
+
+```{r}
+diag_caixes(df, "PaO2..mmHg.")
+```
+
+## FIO2..decimals.
+
+```{r}
+diag_caixes(df, "FIO2..decimals.")
+```
+
+## PaFi
+
+```{r}
+diag_caixes(df, "PaFi")
+```
+
+## Shock
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, Shock), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("Shock") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## SDRA
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, SDRA), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("SDRA") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## CID
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, CID), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("CID") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## OH.Cloroquina
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, OH.Cloroquina), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("OH.Cloroquina") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## Anti.retroviral
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, Anti.retroviral), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("Anti.retroviral") + 
+  ylab("Estatines") + 
+  theme_bw()
+```
+
+## Anticoagulants.tto.COVID
+
+```{r}
+ggplot(df) + 
+  geom_mosaic(aes(x = product(Mort, Anticoagulants.tto.COVID), fill = Mort)) + 
+  facet_grid(Estatines ~ .) + 
+  xlab("Anticoagulants.tto.COVID") + 
+  ylab("Estatines") + 
+  theme_bw()
+```

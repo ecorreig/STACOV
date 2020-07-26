@@ -1,0 +1,605 @@
+---
+title: "Estudi provisional STACOV - v2"
+author: "Eudald Correig"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+# libraries
+library(knitr)
+opts_chunk$set(echo = F, message = F, warning = F)
+library(dplyr)
+library(rlang)
+library(gmodels)
+library(glmnet)
+library(survival)
+library(survminer)
+library(cmprsk)
+library(ggplot2)
+library(cobalt)
+library(questionr)
+library(stringr)
+# Alert: devtools::install_github("ecorreig/forestmodel")
+library(forestmodel)
+```
+
+```{r}
+# sources
+dir_ = "helpers"
+source(file.path(dir_, "lasso.R"), encoding = "UTF-8")
+source(file.path(dir_, "corbes_roc.R"), encoding = "UTF-8")
+source(file.path(dir_, "helpers.R"), encoding = "UTF-8")
+source(file.path(dir_, "weights.R"), encoding = "UTF-8")
+source(file.path(dir_, "grafics.R"), encoding = "UTF-8")
+```
+
+```{r}
+# seed
+set.seed(1714)
+```
+
+```{r}
+# consts
+comp = F
+tall = 42
+save_plots = T
+```
+
+# Formateig
+
+```{r}
+df = read.csv("bbdd_matched_genetic.csv")
+df$Estatines = factor(df$Estatines, levels = c(0, 1), labels = c("No", "Sí"))
+df$hospital = NULL
+df$distance = NULL
+df$Ha.estat.a.la.UCI. = NULL
+df$intensitat = NULL
+df$ids = NULL
+```
+
+Traiem les resines i l'omacor perquè tenen massa poca variabilitat.
+
+```{r}
+df$Resines = NULL
+df$Omacor..1g = NULL
+```
+
+```{r}
+df$Tabac = relevel(df$Tabac, "No")
+df$RX.tòrax = factor(df$RX.tòrax, levels = levels(df$RX.tòrax)[c(3, 2, 1)], 
+                      labels = c("No", "Unilateral", "Bilateral"))
+names(df)[names(df) == "Antiagregants.Anticoagulants"] = "A.A."
+names(df) = gsub("..", ".", names(df), fixed = T)
+names(df) = gsub(".abans.ingrès", "", names(df), fixed = T)
+names(df) = gsub(".Asma", "", names(df), fixed = T)
+names(df) = gsub("Altres.t", "T", names(df), fixed = T)
+```
+Nota: canvio el nom d'Antiagregants.Anticoagulants a A.A perquè si no ocupa massa i les coses es veuen malament.
+
+
+Mirem quantes dates d'ingrés o alta ens falten:
+
+```{r}
+df$data_covid = transform_dates(df$data_covid)
+df$data_ingres = transform_dates(df$data_ingres)
+df$data_alta = transform_dates(df$data_alta)
+falten_ingres = which(is.na(df$data_ingres))
+falten_alta = which(is.na(df$data_alta))
+```
+
+Hi ha `r length(falten_ingres)` pacients dels quals no tenim la data d'ingrés. Els traiem.
+
+```{r}
+df = df[complete.cases(df$data_ingres), ]
+```
+
+Fem una variable que controla quin esdeveniment de sortida (outcome) té cada pacient:
+
+```{r}
+df$esdeveniment = as.factor(ifelse(df$Mort == "Sí", "mort", 
+                         ifelse(is.na(df$data_alta), "censura", "alta")))
+```
+
+Hi ha `r length(unique( falten_alta))` pacients que encara estaven ingressats en el moment d'acabar l'estudi. Els censurem a data de l'últim dia de l'estudi, que és el 5 de juny.
+
+```{r}
+ultim_dia = as.Date("05/06/2020", format = "%d/%m/%Y")
+```
+
+```{r}
+df$data_alta[is.na(df$data_alta)] = ultim_dia
+```
+
+
+```{r}
+df$temps = as.numeric(df$data_alta - df$data_ingres)
+```
+
+Traiem els pacients que tenen pes 0.
+
+```{r}
+df = df[df$weights > 0, ]
+```
+
+La distribució dels temps de seguiment és la següent:
+
+```{r}
+ggplot(df, aes(x = temps)) + 
+  geom_histogram(position = "identity", colour = "blue", fill = "white", binwidth = 1) +
+  theme_bw()
+```
+
+```{r}
+ggplot(df, aes(y = temps)) + 
+  stat_boxplot(geom = "errorbar", width = .3) + 
+  geom_boxplot() +
+  theme_bw()
+```
+
+Els descriptius del temps de seguiment són:
+
+```{r}
+Hmisc::describe(df$temps)
+```
+
+La mediana d'estada són 11 dies, i el rang interquartil va de 7 a 17 dies. El mínim és 1 dia i el màxim 86.
+
+# Descriptiu estatines
+
+Taules descriptives:
+
+## No matxejat
+
+```{r}
+dfn = read.csv("bbdd_neta.csv")
+dfn$Estatines_ret = NULL
+dfn$hospital = NULL
+dfn$Mort = relevel(dfn$Mort, "No")
+```
+
+```{r}
+dfn$Tabac = relevel(dfn$Tabac, "No")
+dfn$`RX.tòrax` = factor(dfn$`RX.tòrax`, levels = levels(dfn$`RX.tòrax`)[c(3, 2, 1)], 
+                      labels = c("No", "Unilateral", "Bilateral"))
+names(dfn)[names(dfn) == "Antiagregants.Anticoagulants"] = "A.A."
+```
+
+```{r}
+tab = wtd_desc_table(dfn, "Estatines")
+names(tab) = c("Variable", "Levels", "All", "No estatins", "Statins", "p-value")
+nice_table(tab)
+```
+
+## Matxejat
+
+```{r}
+wtab = wtd_desc_table(df, "Estatines", weights = df$weights)
+
+names(wtab) = c("Variable", "Levels", "All", "No estatins", "Statins", "p-value")
+nice_table(wtab)
+```
+
+Alerta perquè aquí hi ha valors no enters en alguns casos perquè estem tenin en compte els pesos (és a dir, podem tenir, per exemple, 100.4 persones que fumen i porten estatines)
+
+# Anàlisi univariant
+
+Fem un test de chi^2 per entre prendre estatines o no i morir de covid o no:
+
+```{r}
+tt = questionr::wtd.table(df$Estatines, df$Mort, weights = df$weights)
+CrossTable(tt, chisq = T)
+```
+
+El restultat és que prendre estatines és protector, el p valor és `r chisq.test(tt)$p.value`.
+
+Fem un gràfic:
+
+```{r}
+levels(df$Estatines_ret)[3] = "No retirades"
+stacked_bar_plot(df, save = save_plots)
+df$Estatines_ret = NULL
+```
+
+```{r}
+df$Severitat = NULL
+# Traiem totes les variables post-ingrés
+df_orig = df
+df = df[, -c(31:59)]
+df$data_covid = NULL
+df$data_alta = NULL
+df$data_ingres = NULL
+```
+
+Traiem també els lípids:
+
+```{r}
+df$CT = NULL
+df$LDL = NULL
+df$HDL = NULL
+df$TG = NULL
+```
+
+# Models de supervivència
+
+Primer dibuixem una Kaplan Meier (per nosaltres, no és per posar a l'article, però a mi m'agraden):
+
+```{r}
+dfkm = df
+dfkm$Mort = ifelse(dfkm$Mort == "No", 0, 1)
+surv = cbind(dfkm$temps,
+             dfkm$Mort,
+             dfkm$Estatines)
+surv = as.data.frame(surv)
+colnames(surv) = c("Temps", "Mort", "Estatines")
+
+sfit <-
+  survfit(Surv(Temps, Mort) ~ strata(Estatines),
+          data = surv,
+          weights = dfkm$weights)
+
+ggsurvplot(
+  sfit,
+  # survfit object with calculated statistics.
+  data = surv,
+  # data used to fit survival curves.
+  risk.table = TRUE,
+  # show risk table.
+  legend.labs = c("No Estatines", "Estatines"),
+  conf.int = T,
+  xlim = c(0, 100),
+  # present narrower X axis, but not affect
+  # survival estimates.
+  ylim = c(0., 1),
+  break.time.by = 10,
+  # break X axis in time intervals by 500.
+  
+  ggtheme = theme_minimal(),
+  # customize plot and risk table with a theme.
+  risk.table.y.text.col = T,
+  # colour risk table text annotations.
+  risk.table.y.text = FALSE # show bars instead of names in text annotations
+  # in legend of risk table
+  
+)
+```
+
+Traduïm a l'anglès pel forestplot:
+
+```{r}
+eng_names = c("Age", "Sex", "Smokers", "High Blood Pressure", "Hyperlipidaemia", 
+              "Diabetes", "Obesity", "Coronary Heart Disease", "Stroke", 
+              "Peripheral artery Disease", "Heart Failure", "COPD/Asma", 
+              "Chronic Liver disease", "Chronic Kidney disease", 
+              "Rheumatologic disease", "Cancer", "Statins", "Ezetimibe", "Fibrates", 
+              "ACE inhibitors", "ARB", "Insulin", "SGLT2 inhibitors", 
+              "GLP1R agonists", "Other therapies for diabetes", "Antiplatelet", "Death",
+              "weights", "esdeveniment", "temps")
+names(df) = eng_names
+```
+
+```{r}
+df$Sex = factor(df$Sex, levels = c("Dona", "Home"), labels = c("Females", "Males"))
+df$Smokers = factor(df$Smokers, 
+                    levels = c("No", "Exfumador", "Sí"),
+                    labels = c("No", "Ex-smokers", "Yes"))
+df$Smokers = relevel(df$Smokers, "No")
+for (i in c(4:25, 27)) {
+  df[, i] = factor(df[, i], levels = c("No", "Sí"), labels = c("No", "Yes"))
+}
+df$Antiplatelet = factor(df$Antiplatelet, 
+                         levels = c("Antiagregants", "NACOs", "No", "Sintrom"),
+                         labels = c("Antiplatelet", "NOACs", "No", "Acenocoumarin"))
+df$Antiplatelet = relevel(df$Antiplatelet, "No")
+```
+
+
+Ara fem un anàlisi de Cause Specific Hazard Ratio
+
+## Cause specific hazard ratio
+
+**Alerta:** posem el punt de tall de l'estudi a `r tall` dies.
+
+```{r}
+df$esdeveniment = as.factor(ifelse(df$temps >= tall, "censura",
+                                   as.character(df$esdeveniment)))
+df$esdeveniment = relevel(df$esdeveniment, "censura")
+```
+
+Tenim els següents esdeveniments:
+
+```{r}
+table(df$esdeveniment)
+```
+
+### Mort
+
+```{r}
+cox <-
+  coxph(
+    Surv(as.numeric(temps), esdeveniment == "mort") ~ . - Death - weights
+    - Sex + strata(Sex),
+    data = df,
+    weights = df$weights,
+    ties = "efron"
+  )
+cox_sum_table(cox)
+```
+
+```{r, eval=comp}
+ggcoxdiagnostics(cox)
+```
+
+Dibuixem les corbes de supervivència:
+
+```{r}
+df$ids = 1:nrow(df)
+aa = pred_adj_curves(cox, df, ids = "ids", group = "Statins", strata = "Sex")
+df$ids = NULL
+```
+
+Separem entre homes i dones perquè es vegi millor (i, ja que hem estratificat els models, té més sentit):
+
+### Dones
+
+```{r}
+name = "Females"
+dones = aa[substr(as.character(aa$Statins), 1, nchar(name)) == name, ]
+dones$Statins = factor(dones$Statins, 
+                         levels = c("FemalesYes", "FemalesNo", "FemalesWithdrawn"),
+                         labels = c("Yes", "No", ""))
+title = "Predicted survival probability for women after PM"
+plot_corbes_surv(dones, "Statins", lims = c(0, 42), 
+                 title = title, cuminc = F,
+                 save = save_plots, name = "women_surv_plot")
+```
+
+### Homes
+
+```{r}
+name = "Males"
+homes = aa[substr(as.character(aa$Statins), 1, nchar(name)) == name, ]
+homes$Statins = factor(homes$Statins, 
+                         levels = c(paste0(name, "Yes"), paste0(name, "No")),
+                         labels = c("Yes", "No"))
+title = "Predicted survival probability for men after PM"
+plot_corbes_surv(homes, "Statins", lims = c(0, 42), 
+                 title = title,  cuminc = F,
+                 save = save_plots, name = "men_surv_plot")
+```
+
+Forest plot:
+
+```{r}
+dir = "R"
+for (file in list.files(dir)) {
+  source(file.path(dir, file), encoding = "UTF-8")
+}
+```
+
+
+```{r, fig.height=8, fig.width=8}
+
+png(file.path("plots", "fp_csh_mort.png"),
+    width = 1000,
+    height = 1000)
+forest_model(
+  cox,
+  factor_separate_line = F,
+  hide_ref = T,
+  recalculate_width = T,
+  recalculate_height = T,
+  format_options = list(
+    text_size = 5,
+    shape = 18,
+    size = 4
+  )
+)
+dev.off()
+```
+
+Comprovació de l'assumpció de riscs proporcionals:
+
+```{r, eval=comp}
+tph = cox.zph(cox)
+tph
+```
+
+Gràficament:
+
+```{r, eval=comp}
+plot(tph)
+```
+
+### Alta
+
+```{r}
+cox <-
+  coxph(
+    Surv(as.numeric(temps), df$esdeveniment == "alta") ~ . - weights - Death
+    - Sex + strata(Sex),
+    data = df,
+    weights = df$weights,
+    ties = "efron"
+  )
+
+cox_sum_table(cox)
+```
+
+```{r}
+df$ids = 1:nrow(df)
+aa = pred_adj_curves(cox, df, ids = "ids", group = "Statins", strata = "Sex")
+#plot_corbes_surv(aa, "Estatines", lims = c(0, 42))
+df$ids = NULL
+```
+
+
+```{r, eval=comp}
+dones = aa[substr(as.character(aa$Statins), 1, 4) == "Females", ]
+plot_corbes_surv(dones, "Statins", lims = c(0, 42))
+```
+
+```{r, eval=comp}
+homes = aa[substr(as.character(aa$Statins), 1, 4) == "Males", ]
+plot_corbes_surv(homes, "Statins", lims = c(0, 42))
+```
+
+Forest plot:
+
+```{r, fig.height=8, fig.width=8}
+
+png(file.path("plots", "fp_csh_alta.png"),
+    width = 1000,
+    height = 1000)
+forest_model(
+  cox,
+  factor_separate_line = F,
+  hide_ref = T,
+  recalculate_width = T,
+  recalculate_height = T,
+  format_options = list(
+    text_size = 5,
+    shape = 18,
+    size = 4
+  )
+)
+dev.off()
+
+```
+
+Comprovació de l'assumpció de riscs proporcionals:
+
+```{r, eval=comp}
+tph = cox.zph(cox)
+tph
+```
+
+I acabem per un competing risk
+
+## Competing risk
+
+### Mort
+
+```{r}
+df$ids = 1:nrow(df)
+fg = finegray(
+  Surv(temps, esdeveniment) ~ . - Death - weights - ids,
+  data = df,
+  weights = df$weights,
+  etype = "mort"
+)
+fg$`(weights)` = NULL
+cox_fg = coxph(
+  Surv(fgstart, fgstop, fgstatus) ~ . - Death - fgwt - weights - ids -
+    Sex + strata(Sex),
+  fg,
+  weights = fgwt
+)
+
+cox_sum_table(cox_fg)
+```
+
+Corbes d'acumulació d'esdeveniments:
+
+```{r}
+aa = pred_adj_curves(cox_fg, fg, ids = "ids", group = "Statins", 
+                     strata = "Sex", cuminc = T)
+df$ids = NULL
+```
+
+Tornem a separar entre homes i dones:
+
+### Dones
+
+```{r}
+name = "Females"
+dones = aa[substr(as.character(aa$Statins), 1, nchar(name)) == name, ]
+dones$Statins = factor(dones$Statins, 
+                         levels = c(paste0(name, "Yes"), paste0(name, "No")),
+                         labels = c("Yes", "No"))
+title = "Death cumulative incidence for women after PM"
+plot_corbes_surv(dones, "Statins", lims = c(0, 42), 
+                 title = title,  cuminc = F,
+                 save = save_plots, name = "women_cuminc_plot")
+```
+
+### Homes
+
+```{r}
+name = "Males"
+homes = aa[substr(as.character(aa$Statins), 1, nchar(name)) == name, ]
+homes$Statins = factor(homes$Statins, 
+                         levels = c(paste0(name, "Yes"), paste0(name, "No")),
+                         labels = c("Yes", "No"))
+title = "Death cumulative incidence for men after PM"
+plot_corbes_surv(homes, "Statins", lims = c(0, 42), 
+                 title = title,  cuminc = F,
+                 save = save_plots, name = "men_cuminc_plot")
+```
+
+```{r, eval=comp}
+# Comprovem que l'assumpció de la proporcionalitat de la subdistribució es compleix:
+cov = model.matrix( ~ . - Death - weights - esdeveniment, data = df)[, -1]
+crr = crr(
+  ftime = df$temps,
+  fstatus = df$esdeveniment,
+  cov1 = cov,
+  failcode = "mort",
+  cencode = "censura"
+)
+# summary(crr)
+for (j in 1:ncol(crr$res)) {
+  scatter.smooth(crr$uftime, crr$res[, j], 
+                 main = names(crr$coef)[j],
+                 xlab = "Failure time", 
+                 ylab = "Schoenfeld residuals")
+}
+```
+
+### Alta
+
+```{r}
+df$ids = 1:nrow(df)
+fg = finegray(
+  Surv(temps, esdeveniment) ~ . - Death - weights - ids,
+  data = df,
+  weights = df$weights,
+  etype = "alta"
+)
+fg$`(weights)` = NULL
+cox_fg = coxph(
+  Surv(fgstart, fgstop, fgstatus) ~ . - Death - fgwt - weights - ids -
+    Sex + strata(Sex),
+  fg,
+  weights = fgwt
+)
+
+cox_sum_table(cox_fg)
+```
+
+```{r}
+df$ids = 1:nrow(df)
+aa = pred_adj_curves(cox_fg, fg, ids = "ids", group = "Statins", 
+                     strata = "Sex", cuminc = T)
+df$ids = NULL
+```
+
+Tornem a separar entre homes i dones:
+
+### Dones
+
+```{r}
+name = "Females"
+dones = aa[substr(as.character(aa$Statins), 1, nchar(name)) == name, ]
+plot_corbes_surv(dones, "Statins", lims = c(0, 42))
+```
+
+### Homes
+
+```{r}
+name = "Males"
+homes = aa[substr(as.character(aa$Statins), 1, nchar(name)) == name, ]
+plot_corbes_surv(homes, "Statins", lims = c(0, 42))
+```
+

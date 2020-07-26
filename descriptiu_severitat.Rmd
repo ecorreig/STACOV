@@ -1,0 +1,138 @@
+---
+title: "Estudi descriptiu - Severitat"
+author: "Eudald Correig"
+date: "13/6/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+library(gmodels)
+library(dplyr)
+library(rlang)
+```
+
+```{r}
+dir_ = "helpers"
+source(file.path(dir_, "grafics.R"), encoding = "UTF-8")
+source(file.path(dir_, "weights.R"), encoding = "UTF-8")
+source(file.path(dir_, "helpers.R"), encoding = "UTF-8")
+```
+
+
+# Base de dades original
+
+```{r}
+df = read.csv("bbdd_neta.csv")
+df$hospital = NULL
+df$Mort = NULL
+```
+
+Tornem a definir la severitat, ara en "lleu", scores fins al 5 i "greu", score més alta de 5.
+
+```{r}
+df$Severitat = as.factor(ifelse(df$COVID.19.OMS.INDEX %in% c("S3", "S4", "S5"), 
+                                "lleu", "greu"))
+df$Severitat = relevel(df$Severitat, "lleu")
+```
+
+```{r}
+df$Tabac = relevel(df$Tabac, "No")
+df$`RX.tòrax` = factor(df$`RX.tòrax`, levels = levels(df$`RX.tòrax`)[c(3, 2, 1)], 
+                      labels = c("No", "Unilateral", "Bilateral"))
+names(df)[names(df) == "Antiagregants.Anticoagulants"] = "A.A."
+```
+
+```{r}
+tab = wtd_desc_table(df, "Severitat")
+names(tab) = c("Variable", "Levels", "All", "Lleu", "Greu", "p-value")
+nice_table(tab)
+```
+
+```{r}
+CrossTable(df$Estatines, df$Severitat, chisq = T)
+```
+
+# Base de dades "matxejada"
+
+```{r}
+df = read.csv("bbdd_matched_genetic.csv")
+df$hospital = NULL
+df$Mort = NULL
+df$Estatines = factor(df$Estatines, levels = c(0, 1), labels = c("No", "Sí"))
+df$ids = NULL
+```
+
+```{r}
+df$Severitat = as.factor(ifelse(df$COVID.19.OMS.INDEX %in% c("S3", "S4", "S5"), 
+                                "lleu", "greu"))
+df$Severitat = relevel(df$Severitat, "lleu")
+```
+
+```{r}
+df$distance = NULL
+df$subclass = NULL
+df = df[df$weights > 0, ]
+df$data_alta = NULL
+df$data_covid = NULL
+df$data_ingres = NULL
+```
+
+```{r}
+df$Tabac = relevel(df$Tabac, "No")
+df$`RX.tòrax` = factor(df$`RX.tòrax`, levels = levels(df$`RX.tòrax`)[c(3, 2, 1)], 
+                      labels = c("No", "Unilateral", "Bilateral"))
+names(df)[names(df) == "Antiagregants.Anticoagulants"] = "A.A."
+```
+
+```{r}
+wtab = wtd_desc_table(df, "Severitat", df$weights)
+
+names(wtab) = c("Variable", "Levels", "All", "Lleu", "Greu", "p-value")
+nice_table(wtab)
+```
+
+```{r}
+CrossTable(df$Estatines, df$Severitat, chisq = T)
+```
+
+# Anàlisi univariant
+
+Fem un test de chi^2 per entre prendre estatines o no i morir de covid o no:
+
+```{r}
+tt = questionr::wtd.table(df$Estatines, df$Severitat, weights = df$weights)
+CrossTable(tt, chisq = T)
+```
+
+El restultat és que prendre estatines és protector, el p valor és `r chisq.test(tt)$p.value`.
+
+Fem un gràfic:
+
+```{r}
+tdf = as.data.frame(tt)
+names(tdf) = c("Estatines", "Severitat", "Número")
+tdf$Percentatge = 0
+est = sum(tdf$`Número`[tdf$Estatines == "Sí"])
+noest = sum(tdf$`Número`[tdf$Estatines == "No"])
+tdf$Percentatge[tdf$Estatines == "Sí"] = tdf$`Número`[tdf$Estatines == "Sí"] / est * 100
+tdf$Percentatge[tdf$Estatines == "No"] = tdf$`Número`[tdf$Estatines == "No"] / noest * 100
+tdf$Mort = relevel(tdf$Severitat, "lleu")
+```
+
+```{r}
+ggplot(data = tdf, aes(x = Estatines, y = Percentatge, fill = Severitat)) +
+  geom_bar(stat = "identity", position = "stack") +
+  geom_text(
+    aes(label = paste0(round(Percentatge, 2), "%")),
+    position = position_stack(vjust = 0.5),
+    color = "black",
+    size = 5
+  ) +
+  ylab("%") +
+  ggtitle("Relació entre estatines i severitat") +
+  scale_fill_brewer(palette = "Paired") +
+  theme_bw()
+```
+
+
